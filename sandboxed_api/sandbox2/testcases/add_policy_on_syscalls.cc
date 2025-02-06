@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,7 +30,6 @@ int main() {
   if (getegid() != 1000) return 4;
   if (getresuid(&r, &e, &s) != -1 || errno != 42) return 5;
   if (getresgid(&r, &e, &s) != -1 || errno != 42) return 6;
-  if (read(0, buf, 1) != -1 || errno != 43) return 7;
   if (write(1, buf, 1) != -1 || errno != 43) return 8;
 
   // Trigger a violation.

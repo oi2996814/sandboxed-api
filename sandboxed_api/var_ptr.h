@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,9 +15,14 @@
 #ifndef SANDBOXED_API_VAR_PTR_H_
 #define SANDBOXED_API_VAR_PTR_H_
 
+#include <algorithm>
+#include <cstring>
 #include <memory>
+#include <string>
 
+#include "absl/base/attributes.h"
 #include "absl/base/macros.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_format.h"
 #include "sandboxed_api/var_abstract.h"
 #include "sandboxed_api/var_reg.h"
@@ -76,7 +81,9 @@ class Ptr : public Reg<Var*> {
 };
 
 // Good, old nullptr
-class NullPtr : public Ptr {
+class ABSL_DEPRECATED(
+    "Use regular `nullptr` or `NULL` instead. This class will eventually get "
+    "removed") NullPtr : public Ptr {
  public:
   NullPtr() : Ptr(&void_obj_, SyncType::kSyncNone) {}
 
@@ -90,6 +97,10 @@ class RemotePtr : public Ptr {
   explicit RemotePtr(void* remote_addr)
       : Ptr(&pointed_obj_, SyncType::kSyncNone) {
     pointed_obj_.SetRemote(remote_addr);
+  }
+
+  void SetRemote(void* /* remote */) override {
+    LOG(FATAL) << "SetRemote not supported on RemotePtr";
   }
 
  private:

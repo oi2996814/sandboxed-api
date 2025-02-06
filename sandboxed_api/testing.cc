@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,15 +14,40 @@
 
 #include "sandboxed_api/testing.h"
 
+#include <cstdlib>
+#include <string>
+
 #include "absl/strings/string_view.h"
+#include "sandboxed_api/config.h"
+#include "sandboxed_api/sandbox2/allowlists/all_syscalls.h"
+#include "sandboxed_api/sandbox2/policybuilder.h"
 #include "sandboxed_api/util/path.h"
 
 namespace sapi {
 
+sandbox2::PolicyBuilder CreateDefaultPermissiveTestPolicy(
+    absl::string_view bin_path) {
+  sandbox2::PolicyBuilder builder;
+  // Don't restrict the syscalls at all.
+  builder.DefaultAction(sandbox2::AllowAllSyscalls());
+  if (IsCoverageRun()) {
+    builder.AddDirectory(absl::NullSafeStringView(getenv("COVERAGE_DIR")),
+                         /*is_ro=*/false);
+  }
+  if constexpr (sapi::sanitizers::IsAny()) {
+    builder.AddLibrariesForBinary(bin_path);
+  }
+  if constexpr (sapi::sanitizers::IsAny()) {
+    builder.AddDirectory("/proc");
+  }
+  builder.AllowTcMalloc();
+  return builder;
+}
+
 std::string GetTestTempPath(absl::string_view name) {
   // When using Bazel, the environment variable TEST_TMPDIR is guaranteed to be
   // set.
-  // See https://docs.bazel.build/versions/master/test-encyclopedia.html for
+  // See https://bazel.build/reference/test-encyclopedia#initial-conditions for
   // details.
   const char* test_tmpdir = getenv("TEST_TMPDIR");
   return file::JoinPath(test_tmpdir ? test_tmpdir : ".", name);

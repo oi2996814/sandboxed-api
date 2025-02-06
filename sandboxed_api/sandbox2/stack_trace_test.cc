@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,144 +14,191 @@
 
 #include "sandboxed_api/sandbox2/stack_trace.h"
 
-#include <dirent.h>
+#include <sys/types.h>
 
 #include <cstdio>
+#include <functional>
+#include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "sandboxed_api/util/flag.h"
-#include "absl/memory/memory.h"
-#include "absl/strings/match.h"
+#include "absl/base/log_severity.h"
+#include "absl/log/check.h"
+#include "absl/log/scoped_mock_log.h"
 #include "absl/strings/str_cat.h"
+#include "absl/time/time.h"
+#include "sandboxed_api/sandbox2/allowlists/all_syscalls.h"
+#include "sandboxed_api/sandbox2/allowlists/namespaces.h"
 #include "sandboxed_api/sandbox2/executor.h"
 #include "sandboxed_api/sandbox2/global_forkclient.h"
 #include "sandboxed_api/sandbox2/policy.h"
 #include "sandboxed_api/sandbox2/policybuilder.h"
 #include "sandboxed_api/sandbox2/result.h"
 #include "sandboxed_api/sandbox2/sandbox2.h"
-#include "sandboxed_api/sandbox2/util/bpf_helper.h"
 #include "sandboxed_api/testing.h"
 #include "sandboxed_api/util/fileops.h"
 #include "sandboxed_api/util/status_matchers.h"
-#include "sandboxed_api/util/temp_file.h"
-
-ABSL_DECLARE_FLAG(bool, sandbox_libunwind_crash_handler);
 
 namespace sandbox2 {
+
+class StackTraceTestPeer {
+ public:
+  static StackTraceTestPeer& GetInstance() {
+    static auto* peer = new StackTraceTestPeer();
+    return *peer;
+  }
+  std::unique_ptr<internal::SandboxPeer> SpawnFn(
+      std::unique_ptr<Executor> executor, std::unique_ptr<Policy> policy) {
+    if (crash_unwind_) {
+      policy = PolicyBuilder().BuildOrDie();
+      crash_unwind_ = false;
+    }
+    return old_spawn_fn_(std::move(executor), std::move(policy));
+  }
+  void ReplaceSpawnFn() {
+    old_spawn_fn_ = internal::SandboxPeer::spawn_fn_;
+    internal::SandboxPeer::spawn_fn_ = +[](std::unique_ptr<Executor> executor,
+                                           std::unique_ptr<Policy> policy) {
+      return GetInstance().SpawnFn(std::move(executor), std::move(policy));
+    };
+  }
+  void RestoreSpawnFn() { internal::SandboxPeer::spawn_fn_ = old_spawn_fn_; }
+  void CrashNextUnwind() { crash_unwind_ = true; }
+
+ private:
+  internal::SandboxPeer::SpawnFn old_spawn_fn_;
+  bool crash_unwind_ = false;
+};
+
+struct ScopedSpawnOverride {
+  ScopedSpawnOverride() { StackTraceTestPeer::GetInstance().ReplaceSpawnFn(); }
+  ~ScopedSpawnOverride() { StackTraceTestPeer::GetInstance().RestoreSpawnFn(); }
+  ScopedSpawnOverride(ScopedSpawnOverride&&) = delete;
+  ScopedSpawnOverride& operator=(ScopedSpawnOverride&&) = delete;
+  ScopedSpawnOverride(const ScopedSpawnOverride&) = delete;
+  ScopedSpawnOverride& operator=(const ScopedSpawnOverride&) = delete;
+
+  void CrashNextUnwind() {
+    StackTraceTestPeer::GetInstance().CrashNextUnwind();
+  }
+};
+
 namespace {
 
 namespace file_util = ::sapi::file_util;
-using ::sapi::CreateNamedTempFileAndClose;
+using ::sapi::CreateDefaultPermissiveTestPolicy;
 using ::sapi::GetTestSourcePath;
+using ::testing::_;
+using ::testing::Contains;
+using ::testing::ContainsRegex;
 using ::testing::ElementsAre;
 using ::testing::Eq;
-using ::testing::HasSubstr;
 using ::testing::IsEmpty;
-using ::testing::Not;
+using ::testing::StartsWith;
 
-// Temporarily overrides a flag, restores the original flag value when it goes
-// out of scope.
-template <typename T>
-class TemporaryFlagOverride {
- public:
-  using Flag = T;
-  TemporaryFlagOverride(Flag* flag, T value)
-      : flag_(flag), original_value_(absl::GetFlag(*flag)) {
-    absl::SetFlag(flag, value);
-  }
-
-  ~TemporaryFlagOverride() { absl::SetFlag(flag_, original_value_); }
-
- private:
-  Flag* flag_;
-  T original_value_;
+struct TestCase {
+  std::string testname = "CrashMe";
+  int testno = 1;
+  int testmode = 1;
+  int final_status = Result::SIGNALED;
+  std::string function_name = testname;
+  std::string full_function_description = "CrashMe(char)";
+  std::function<void(PolicyBuilder*)> modify_policy;
+  absl::Duration wall_time_limit = absl::ZeroDuration();
 };
 
+class StackTraceTest : public ::testing::TestWithParam<TestCase> {};
+
 // Test that symbolization of stack traces works.
-void SymbolizationWorksCommon(
-    const std::function<void(PolicyBuilder*)>& modify_policy) {
+void SymbolizationWorksCommon(TestCase param) {
   const std::string path = GetTestSourcePath("sandbox2/testcases/symbolize");
-  std::vector<std::string> args = {path, "1"};
-  auto executor = absl::make_unique<Executor>(path, args);
+  std::vector<std::string> args = {path, absl::StrCat(param.testno),
+                                   absl::StrCat(param.testmode)};
 
-  std::string temp_filename = CreateNamedTempFileAndClose("/tmp/").value();
-  file_util::fileops::CopyFile("/proc/cpuinfo", temp_filename, 0444);
-  struct TempCleanup {
-    ~TempCleanup() { remove(capture->c_str()); }
-    std::string* capture;
-  } temp_cleanup{&temp_filename};
+  PolicyBuilder builder = CreateDefaultPermissiveTestPolicy(path);
+  if (param.modify_policy) {
+    param.modify_policy(&builder);
+  }
+  SAPI_ASSERT_OK_AND_ASSIGN(auto policy, builder.TryBuild());
 
-  PolicyBuilder policybuilder;
-  policybuilder
-      // Don't restrict the syscalls at all.
-      .DangerDefaultAllowAll()
-      .AddFile(path)
-      .AddLibrariesForBinary(path)
-      .AddFileAt(temp_filename, "/proc/cpuinfo");
+  Sandbox2 s2(std::make_unique<Executor>(path, args), std::move(policy));
+  ASSERT_TRUE(s2.RunAsync());
+  s2.set_walltime_limit(param.wall_time_limit);
+  auto result = s2.AwaitResult();
 
-  modify_policy(&policybuilder);
-  SAPI_ASSERT_OK_AND_ASSIGN(auto policy, policybuilder.TryBuild());
-
-  Sandbox2 s2(std::move(executor), std::move(policy));
-  auto result = s2.Run();
-
-  ASSERT_THAT(result.final_status(), Eq(Result::SIGNALED));
-  ASSERT_THAT(result.GetStackTrace(), HasSubstr("CrashMe"));
+  EXPECT_THAT(result.final_status(), Eq(param.final_status));
+  EXPECT_THAT(result.stack_trace(), Contains(StartsWith(param.function_name)));
   // Check that demangling works as well.
-  ASSERT_THAT(result.GetStackTrace(), HasSubstr("CrashMe()"));
+  EXPECT_THAT(result.stack_trace(),
+              Contains(StartsWith(param.full_function_description)));
+  EXPECT_THAT(result.stack_trace(), Contains(StartsWith("RunTest")));
+  EXPECT_THAT(result.stack_trace(), Contains(StartsWith("main")));
+  if (param.testmode == 2) {
+    EXPECT_THAT(result.stack_trace(),
+                Contains(StartsWith("RecurseA")).Times(5));
+    EXPECT_THAT(result.stack_trace(),
+                Contains(StartsWith("RecurseB")).Times(5));
+  } else if (param.testmode == 3) {
+    EXPECT_THAT(result.stack_trace(), Contains(StartsWith("LibCallCallback")));
+    EXPECT_THAT(result.stack_trace(), Contains(StartsWith("LibRecurse")));
+    EXPECT_THAT(result.stack_trace(),
+                Contains(StartsWith("LibRecurseA")).Times(5));
+    EXPECT_THAT(result.stack_trace(),
+                Contains(StartsWith("LibRecurseB")).Times(5));
+  }
 }
 
-TEST(StackTraceTest, SymbolizationWorksNonSandboxedLibunwind) {
-  SKIP_SANITIZERS_AND_COVERAGE;
-  TemporaryFlagOverride<bool> temp_override(
-      &FLAGS_sandbox_libunwind_crash_handler, false);
-  SymbolizationWorksCommon([](PolicyBuilder*) {});
+void SymbolizationWorksWithModifiedPolicy(
+    std::function<void(PolicyBuilder*)> modify_policy) {
+  TestCase test_case;
+  test_case.modify_policy = std::move(modify_policy);
+  SymbolizationWorksCommon(test_case);
 }
 
-TEST(StackTraceTest, SymbolizationWorksSandboxedLibunwind) {
-  SKIP_SANITIZERS_AND_COVERAGE;
-  TemporaryFlagOverride<bool> temp_override(
-      &FLAGS_sandbox_libunwind_crash_handler, true);
-  SymbolizationWorksCommon([](PolicyBuilder*) {});
+TEST_P(StackTraceTest, SymbolizationWorksWithoutnNamespaces) {
+  TestCase test_case = GetParam();
+  auto old_modify_policy = test_case.modify_policy;
+  test_case.modify_policy = [old_modify_policy](PolicyBuilder* builder) {
+    *builder = PolicyBuilder();
+    builder->DefaultAction(AllowAllSyscalls())
+        .DisableNamespaces(NamespacesToken());
+    if (old_modify_policy) {
+      old_modify_policy(builder);
+    }
+  };
+  SymbolizationWorksCommon(test_case);
+}
+
+TEST_P(StackTraceTest, SymbolizationWorks) {
+  SymbolizationWorksCommon(GetParam());
 }
 
 TEST(StackTraceTest, SymbolizationWorksSandboxedLibunwindProcDirMounted) {
-  SKIP_SANITIZERS_AND_COVERAGE;
-  TemporaryFlagOverride<bool> temp_override(
-      &FLAGS_sandbox_libunwind_crash_handler, true);
-  SymbolizationWorksCommon(
+  SymbolizationWorksWithModifiedPolicy(
       [](PolicyBuilder* builder) { builder->AddDirectory("/proc"); });
 }
 
 TEST(StackTraceTest, SymbolizationWorksSandboxedLibunwindProcFileMounted) {
-  SKIP_SANITIZERS_AND_COVERAGE;
-  TemporaryFlagOverride<bool> temp_override(
-      &FLAGS_sandbox_libunwind_crash_handler, true);
-  SymbolizationWorksCommon([](PolicyBuilder* builder) {
+  SymbolizationWorksWithModifiedPolicy([](PolicyBuilder* builder) {
     builder->AddFile("/proc/sys/vm/overcommit_memory");
   });
 }
 
 TEST(StackTraceTest, SymbolizationWorksSandboxedLibunwindSysDirMounted) {
-  SKIP_SANITIZERS_AND_COVERAGE;
-  TemporaryFlagOverride<bool> temp_override(
-      &FLAGS_sandbox_libunwind_crash_handler, true);
-  SymbolizationWorksCommon(
+  SymbolizationWorksWithModifiedPolicy(
       [](PolicyBuilder* builder) { builder->AddDirectory("/sys"); });
 }
 
 TEST(StackTraceTest, SymbolizationWorksSandboxedLibunwindSysFileMounted) {
-  SKIP_SANITIZERS_AND_COVERAGE;
-  TemporaryFlagOverride<bool> temp_override(
-      &FLAGS_sandbox_libunwind_crash_handler, true);
-  SymbolizationWorksCommon([](PolicyBuilder* builder) {
+  SymbolizationWorksWithModifiedPolicy([](PolicyBuilder* builder) {
     builder->AddFile("/sys/devices/system/cpu/online");
   });
 }
 
-static size_t FileCountInDirectory(const std::string& path) {
+size_t FileCountInDirectory(const std::string& path) {
   std::vector<std::string> fds;
   std::string error;
   CHECK(file_util::fileops::ListDirectoryEntries(path, &fds, &error));
@@ -159,15 +206,9 @@ static size_t FileCountInDirectory(const std::string& path) {
 }
 
 TEST(StackTraceTest, ForkEnterNsLibunwindDoesNotLeakFDs) {
-  SKIP_SANITIZERS_AND_COVERAGE;
-  TemporaryFlagOverride<bool> temp_override(
-      &FLAGS_sandbox_libunwind_crash_handler, true);
-
   // Very first sanitization might create some fds (e.g. for initial
   // namespaces).
-  SymbolizationWorksCommon([](PolicyBuilder* builder) {
-    builder->AddFile("/sys/devices/system/cpu/online");
-  });
+  SymbolizationWorksCommon({});
 
   // Get list of open FDs in the global forkserver.
   pid_t forkserver_pid = GlobalForkClient::GetPid();
@@ -175,31 +216,9 @@ TEST(StackTraceTest, ForkEnterNsLibunwindDoesNotLeakFDs) {
       absl::StrCat("/proc/", forkserver_pid, "/fd");
   size_t filecount_before = FileCountInDirectory(forkserver_fd_path);
 
-  SymbolizationWorksCommon([](PolicyBuilder* builder) {
-    builder->AddFile("/sys/devices/system/cpu/online");
-  });
+  SymbolizationWorksCommon({});
 
   EXPECT_THAT(filecount_before, Eq(FileCountInDirectory(forkserver_fd_path)));
-}
-
-// Test that symbolization skips writeable files (attack vector).
-TEST(StackTraceTest, SymbolizationTrustedFilesOnly) {
-  SKIP_SANITIZERS_AND_COVERAGE;
-  const std::string path = GetTestSourcePath("sandbox2/testcases/symbolize");
-  std::vector<std::string> args = {path, "2"};
-  auto executor = absl::make_unique<Executor>(path, args);
-  SAPI_ASSERT_OK_AND_ASSIGN(
-      auto policy, PolicyBuilder{}  // Don't restrict the syscalls at all.
-                       .DangerDefaultAllowAll()
-                       .AddFile(path)
-                       .AddLibrariesForBinary(path)
-                       .TryBuild());
-
-  Sandbox2 s2(std::move(executor), std::move(policy));
-  auto result = s2.Run();
-
-  ASSERT_THAT(result.final_status(), Eq(Result::SIGNALED));
-  ASSERT_THAT(result.GetStackTrace(), Not(HasSubstr("CrashMe")));
 }
 
 TEST(StackTraceTest, CompactStackTrace) {
@@ -226,6 +245,89 @@ TEST(StackTraceTest, CompactStackTrace) {
               ElementsAre("_start", "main", "recursive_call",
                           "(previous frame repeated 3 times)"));
 }
+
+TEST(StackTraceTest, RecursiveStackTrace) {
+  // Very first sandbox run will initialize spawn_fn_
+  SKIP_SANITIZERS;
+  ScopedSpawnOverride spawn_override;
+  SymbolizationWorksCommon({});
+  absl::ScopedMockLog log;
+  EXPECT_CALL(
+      log,
+      Log(absl::LogSeverity::kInfo, _,
+          ContainsRegex(
+              "Libunwind execution status: SYSCALL VIOLATION.*Stack: \\w+")));
+  spawn_override.CrashNextUnwind();
+  const std::string path = GetTestSourcePath("sandbox2/testcases/symbolize");
+  std::vector<std::string> args = {path, absl::StrCat(1), absl::StrCat(1)};
+  PolicyBuilder builder = CreateDefaultPermissiveTestPolicy(path);
+  SAPI_ASSERT_OK_AND_ASSIGN(auto policy, builder.TryBuild());
+
+  Sandbox2 s2(std::make_unique<Executor>(path, args), std::move(policy));
+  log.StartCapturingLogs();
+  ASSERT_TRUE(s2.RunAsync());
+  auto result = s2.AwaitResult();
+  EXPECT_THAT(result.final_status(), Eq(Result::SIGNALED));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    Instantiation, StackTraceTest,
+    ::testing::Values(
+        TestCase{
+            .testname = "CrashMe",
+            .testno = 1,
+            .final_status = Result::SIGNALED,
+            .full_function_description = "CrashMe(char)",
+        },
+        TestCase{
+            .testname = "ViolatePolicy",
+            .testno = 2,
+            .final_status = Result::VIOLATION,
+            .full_function_description = "ViolatePolicy(int)",
+        },
+        TestCase{
+            .testname = "ExitNormally",
+            .testno = 3,
+            .final_status = Result::OK,
+            .full_function_description = "ExitNormally(int)",
+            .modify_policy =
+                [](PolicyBuilder* builder) {
+                  builder->CollectStacktracesOnExit(true);
+                },
+        },
+        TestCase{
+            .testname = "SleepForXSeconds",
+            .testno = 4,
+            .final_status = Result::TIMEOUT,
+            .full_function_description = "SleepForXSeconds(int)",
+            .wall_time_limit = absl::Seconds(1),
+        },
+        TestCase{
+            .testname = "ViolatePolicyRecursive",
+            .testno = 2,
+            .testmode = 2,
+            .final_status = Result::VIOLATION,
+            .function_name = "ViolatePolicy",
+            .full_function_description = "ViolatePolicy(int)",
+        },
+        TestCase{
+            .testname = "ViolatePolicyRecursiveLib",
+            .testno = 2,
+            .testmode = 3,
+            .final_status = Result::VIOLATION,
+            .function_name = "ViolatePolicy",
+            .full_function_description = "ViolatePolicy(int)",
+        },
+        TestCase{
+            .testname = "ViolatePolicyForked",
+            .testno = 5,
+            .final_status = Result::VIOLATION,
+            .function_name = "ViolatePolicy",
+            .full_function_description = "ViolatePolicy(int)",
+        }),
+    [](const ::testing::TestParamInfo<TestCase>& info) {
+      return info.param.testname;
+    });
 
 }  // namespace
 }  // namespace sandbox2

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,19 +17,24 @@
 
 #include <syscall.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
-#include "sandboxed_api/util/flag.h"
-#include "absl/memory/memory.h"
+#include "absl/log/check.h"
+#include "absl/flags/parse.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+#include "absl/base/log_severity.h"
+#include "absl/time/time.h"
 #include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/executor.h"
-#include "sandboxed_api/sandbox2/forkserver.h"
+#include "sandboxed_api/sandbox2/fork_client.h"
 #include "sandboxed_api/sandbox2/limits.h"
 #include "sandboxed_api/sandbox2/policy.h"
 #include "sandboxed_api/sandbox2/policybuilder.h"
@@ -57,20 +62,15 @@ std::unique_ptr<sandbox2::Policy> GetPolicy() {
 static int SandboxIteration(sandbox2::ForkClient* fork_client, int32_t i) {
   // Now, start the sandboxee as usual, just use a different Executor
   // constructor, which takes pointer to the ForkClient.
-  auto executor = absl::make_unique<sandbox2::Executor>(fork_client);
+  auto executor = std::make_unique<sandbox2::Executor>(fork_client);
 
   // Set limits as usual.
   executor
       ->limits()
-      // Remove restrictions on the size of address-space of sandboxed
-      // processes. Here, it's 1GiB.
-      ->set_rlimit_as(sapi::sanitizers::IsAny() ? RLIM64_INFINITY
-                                                : 1ULL << 30  // 1GiB
-                      )
       // Kill sandboxed processes with a signal (SIGXFSZ) if it writes more than
       // these many bytes to the file-system (including logs in prod, which
       // write to files STDOUT and STDERR).
-      .set_rlimit_fsize(1024 /* bytes */)
+      ->set_rlimit_fsize(1024 /* bytes */)
       // The CPU time limit.
       .set_rlimit_cpu(10 /* CPU-seconds */)
       .set_walltime_limit(absl::Seconds(5));
@@ -83,7 +83,7 @@ static int SandboxIteration(sandbox2::ForkClient* fork_client, int32_t i) {
   CHECK(s2.comms()->SendInt32(i));
   sandbox2::Result result = s2.AwaitResult();
 
-  LOG(INFO) << "Final execution status of PID " << s2.GetPid() << ": "
+  LOG(INFO) << "Final execution status of PID " << s2.pid() << ": "
             << result.ToString();
 
   if (result.final_status() != sandbox2::Result::OK) {
@@ -92,9 +92,10 @@ static int SandboxIteration(sandbox2::ForkClient* fork_client, int32_t i) {
   return result.reason_code();
 }
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+int main(int argc, char* argv[]) {
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  absl::ParseCommandLine(argc, argv);
+  absl::InitializeLog();
 
   // This test is incompatible with sanitizers.
   // The `SKIP_SANITIZERS_AND_COVERAGE` macro won't work for us here since we
@@ -109,7 +110,7 @@ int main(int argc, char** argv) {
       "sandbox2/examples/custom_fork/custom_fork_bin");
   std::vector<std::string> args = {path};
   std::vector<std::string> envs = {};
-  auto fork_executor = absl::make_unique<sandbox2::Executor>(path, args, envs);
+  auto fork_executor = std::make_unique<sandbox2::Executor>(path, args, envs);
   // Start the fork-server (which is here: the custom_fork_bin process calling
   // sandbox2::Client::WaitAndFork() in a loop).
   //

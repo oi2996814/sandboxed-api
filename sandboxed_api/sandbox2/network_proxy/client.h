@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,12 +15,17 @@
 #ifndef SANDBOXED_API_SANDBOX2_NETWORK_PROXY_CLIENT_H_
 #define SANDBOXED_API_SANDBOX2_NETWORK_PROXY_CLIENT_H_
 
-#include <netinet/in.h>
-#include <signal.h>
+#include <sys/socket.h>
 
+#include <cstdint>
+
+#include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "sandboxed_api/sandbox2/comms.h"
+#include "sandboxed_api/sandbox2/util/syscall_trap.h"
+#include "sandboxed_api/util/fileops.h"
 
 namespace sandbox2 {
 
@@ -38,16 +43,14 @@ class NetworkProxyClient {
   // back a connected socket.
   absl::Status Connect(int sockfd, const struct sockaddr* addr,
                        socklen_t addrlen);
-  // Same as Connect, but with same API as regular connect() call.
-  int ConnectHandler(int sockfd, const struct sockaddr* addr,
-                     socklen_t addrlen);
 
  private:
-  Comms comms_;
-  absl::Status ReceiveRemoteResult();
+  absl::StatusOr<sapi::file_util::fileops::FDCloser> ConnectInternal(
+      const struct sockaddr* addr, socklen_t addrlen);
 
   // Needed to make the Proxy thread safe.
   absl::Mutex mutex_;
+  Comms comms_ ABSL_GUARDED_BY(mutex_);
 };
 
 class NetworkProxyHandler {
@@ -57,17 +60,9 @@ class NetworkProxyHandler {
   // if this connection is allowed and sends the connected socket to us.
   static absl::Status InstallNetworkProxyHandler(NetworkProxyClient* npc);
 
-  void ProcessSeccompTrap(int nr, siginfo_t* info, void* void_context);
+  static bool ProcessSeccompTrap(int nr, SyscallTrap::Args args, uintptr_t* rv);
 
- private:
-  NetworkProxyHandler(NetworkProxyClient* npc) : network_proxy_client_(npc) {
-    InstallSeccompTrap();
-  }
-  void InvokeOldAct(int nr, siginfo_t* info, void* void_context);
-  void InstallSeccompTrap();
-
-  struct sigaction oldact_;
-  NetworkProxyClient* network_proxy_client_;
+  static NetworkProxyClient* network_proxy_client_;
 };
 
 }  // namespace sandbox2

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,18 +16,25 @@
 
 #include <elf.h>
 
+#include <algorithm>
+#include <cerrno>
 #include <cstddef>
-#include <memory>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include "absl/base/internal/endian.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/util.h"
-#include "sandboxed_api/util/os_error.h"
 #include "sandboxed_api/util/raw_logging.h"
 #include "sandboxed_api/util/status_macros.h"
 
@@ -62,8 +69,7 @@ namespace {
 // NOLINTNEXTLINE
 absl::Status CheckedFSeek(FILE* f, long offset, int whence) {
   if (fseek(f, offset, whence)) {
-    return absl::FailedPreconditionError(
-        sapi::OsErrorMessage(errno, "Fseek on ELF failed"));
+    return absl::ErrnoToStatus(errno, "Fseek on ELF failed");
   }
   return absl::OkStatus();
 }
@@ -72,8 +78,7 @@ absl::Status CheckedFRead(void* dst, size_t size, size_t nmemb, FILE* f) {
   if (std::fread(dst, size, nmemb, f) == nmemb) {
     return absl::OkStatus();
   }
-  return absl::FailedPreconditionError(
-      sapi::OsErrorMessage(errno, "Reading ELF data failed"));
+  return absl::ErrnoToStatus(errno, "Reading ELF data failed");
 }
 
 absl::Status CheckedRead(std::string* s, FILE* f) {
@@ -97,10 +102,10 @@ class ElfParser {
   // Arbitrary cut-off values, so we can parse safely.
   static constexpr int kMaxProgramHeaderEntries = 500;
   static constexpr int kMaxSectionHeaderEntries = 500;
-  static constexpr size_t kMaxSectionSize = 200 * 1024 * 1024;
+  static constexpr size_t kMaxSectionSize = 500 * 1024 * 1024;
   static constexpr size_t kMaxStrtabSize = 500 * 1024 * 1024;
   static constexpr size_t kMaxLibPathSize = 1024;
-  static constexpr int kMaxSymbolEntries = 2 * 1000 * 1000;
+  static constexpr int kMaxSymbolEntries = 4 * 1000 * 1000;
   static constexpr int kMaxDynamicEntries = 10000;
   static constexpr size_t kMaxInterpreterSize = 1000;
 
@@ -479,8 +484,8 @@ absl::StatusOr<ElfFile> ElfParser::Parse(const std::string& filename,
                                          uint32_t features) {
   ElfParser parser;
   if (parser.elf_ = std::fopen(filename.c_str(), "r"); !parser.elf_) {
-    return absl::UnknownError(sapi::OsErrorMessage(
-        errno, absl::StrCat("cannot open file: ", filename)));
+    return absl::ErrnoToStatus(errno,
+                               absl::StrCat("cannot open file: ", filename));
   }
 
   // Basic sanity check.

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,32 +14,38 @@
 
 #include "sandboxed_api/sandbox2/network_proxy/server.h"
 
-#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <sys/types.h>
-#include <syscall.h>
 
+#include <atomic>
 #include <cerrno>
-#include <cstring>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include <glog/logging.h>
-#include "absl/memory/memory.h"
+#include "absl/functional/any_invocable.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "sandboxed_api/sandbox2/comms.h"
+#include "sandboxed_api/sandbox2/network_proxy/filtering.h"
 #include "sandboxed_api/util/fileops.h"
 
 namespace sandbox2 {
 
 namespace file_util = ::sapi::file_util;
 
-NetworkProxyServer::NetworkProxyServer(int fd, AllowedHosts* allowed_hosts,
-                                       pthread_t monitor_thread_id)
+NetworkProxyServer::NetworkProxyServer(
+    int fd, AllowedHosts* allowed_hosts,
+    absl::AnyInvocable<void()> notify_violation_fn)
     : violation_occurred_(false),
-      comms_{absl::make_unique<Comms>(fd)},
+      comms_(std::make_unique<Comms>(fd)),
       fatal_error_(false),
-      monitor_thread_id_(monitor_thread_id),
+      notify_violation_fn_(std::move(notify_violation_fn)),
       allowed_hosts_(allowed_hosts) {}
 
 void NetworkProxyServer::ProcessConnectRequest() {
@@ -75,14 +81,15 @@ void NetworkProxyServer::ProcessConnectRequest() {
   int result = connect(
       new_socket, reinterpret_cast<const sockaddr*>(addr.data()), addr.size());
 
-  if (result == 0) {
-    NotifySuccess();
-    if (!fatal_error_) {
-      if (!comms_->SendFD(new_socket)) {
-        fatal_error_ = true;
-        return;
-      }
-    }
+  if (result < 0) {
+    SendError(errno);
+    return;
+  }
+
+  NotifySuccess();
+  if (!fatal_error_ && !comms_->SendFD(new_socket)) {
+    fatal_error_ = true;
+    return;
   }
 }
 
@@ -114,7 +121,7 @@ void NetworkProxyServer::NotifyViolation(const struct sockaddr* saddr) {
     violation_msg_ = std::string(result.status().message());
   }
   violation_occurred_.store(true, std::memory_order_release);
-  pthread_kill(monitor_thread_id_, SIGCHLD);
+  notify_violation_fn_();
 }
 
 }  // namespace sandbox2

@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -47,17 +47,35 @@ target_link_libraries(sapi_util_fileops PRIVATE
   sapi::base
 )
 
-# sandboxed_api/util:flag
-file(WRITE ${SAPI_BINARY_DIR}/sapi_util_flags_force_cxx_linkage.cc "")
-add_library(sapi_util_flags ${SAPI_LIB_TYPE}
-  flag.h
-  "${SAPI_BINARY_DIR}/sapi_util_flags_force_cxx_linkage.cc"
+# sandboxed_api/util:proto_arg
+sapi_protobuf_generate_cpp(_sapi_proto_arg_pb_cc _sapi_proto_arg_pb_h
+  proto_arg.proto
 )
-add_library(sapi::flags ALIAS sapi_util_flags)
-target_link_libraries(sapi_util_flags PUBLIC
-  glog::glog
-  # gflags::gflags
+add_library(sapi_util_proto_arg_proto ${SAPI_LIB_TYPE}
+  ${_sapi_proto_arg_pb_cc}
+  ${_sapi_proto_arg_pb_h}
 )
+add_library(sapi::proto_arg_proto ALIAS sapi_util_proto_arg_proto)
+target_link_libraries(sapi_util_proto_arg_proto PRIVATE
+  protobuf::libprotobuf
+  sapi::base
+)
+
+# sandboxed_api/util:proto_helper
+add_library(sapi_util_proto_helper ${SAPI_LIB_TYPE}
+  proto_helper.cc
+  proto_helper.h
+)
+add_library(sapi::proto_helper ALIAS sapi_util_proto_helper)
+target_link_libraries(sapi_util_proto_helper
+  PRIVATE sapi::base
+  PUBLIC absl::core_headers
+         absl::status
+         absl::statusor
+         sapi::proto_arg_proto
+         sapi::status
+)
+
 
 # sandboxed_api/util:raw_logging
 add_library(sapi_util_raw_logging ${SAPI_LIB_TYPE}
@@ -85,7 +103,6 @@ target_link_libraries(sapi_util_runfiles PRIVATE
   absl::strings
   sapi::file_base
   sapi::base
-  sapi::flags
   sapi::raw_logging
 )
 
@@ -105,14 +122,14 @@ target_link_libraries(sapi_util_status_proto
 
 # sandboxed_api/util:status
 add_library(sapi_util_status ${SAPI_LIB_TYPE}
-  os_error.h
   status.cc
   status.h
   status_macros.h
 )
 add_library(sapi::status ALIAS sapi_util_status)
 target_link_libraries(sapi_util_status
-  PRIVATE absl::core_headers
+  PRIVATE absl::cord
+          absl::core_headers
           absl::status
           absl::strings
           sapi::base
@@ -140,7 +157,6 @@ add_library(sapi_util_temp_file ${SAPI_LIB_TYPE}
 add_library(sapi::temp_file ALIAS sapi_util_temp_file)
 target_link_libraries(sapi_util_temp_file
   PRIVATE absl::strings
-          sapi::fileops
           sapi::status
           sapi::strerror
           sapi::base
@@ -148,7 +164,18 @@ target_link_libraries(sapi_util_temp_file
          absl::statusor
 )
 
-if(SAPI_ENABLE_TESTS)
+# sandboxed_api/util:thread
+add_library(sapi_util_thread ${SAPI_LIB_TYPE}
+  thread.h
+)
+add_library(sapi::thread ALIAS sapi_util_thread)
+target_link_libraries(sapi_util_thread
+  PUBLIC absl::any_invocable
+         absl::strings
+         sapi::base
+)
+
+if(BUILD_TESTING AND SAPI_BUILD_TESTING)
   # sandboxed_api/util:file_base_test
   add_executable(sapi_file_base_test
     path_test.cc
@@ -171,7 +198,6 @@ if(SAPI_ENABLE_TESTS)
     OUTPUT_NAME file_helpers_test
   )
   target_link_libraries(sapi_file_helpers_test PRIVATE
-    absl::strings
     sapi::file_helpers
     sapi::status_matchers
     sapi::test_main
@@ -204,11 +230,12 @@ if(SAPI_ENABLE_TESTS)
   )
   add_library(sapi::status_matchers ALIAS sapi_util_status_matchers)
   target_link_libraries(sapi_util_status_matchers
-    PRIVATE absl::optional
-            gmock
-            gtest
-            sapi::base
-    PUBLIC absl::status
+    PUBLIC absl::optional
+           absl::status
+           absl::strings
+           gmock
+           gtest
+           sapi::base
            sapi::status
   )
 
@@ -219,7 +246,7 @@ if(SAPI_ENABLE_TESTS)
   set_target_properties(sapi_status_test PROPERTIES OUTPUT_NAME status_test)
   target_link_libraries(sapi_status_test PRIVATE
     absl::status
-    absl::type_traits
+    absl::statusor
     sapi::status
     sapi::status_matchers
     sapi::test_main
@@ -253,6 +280,7 @@ if(SAPI_ENABLE_TESTS)
     absl::strings
     sapi::strerror
     sapi::test_main
+    sapi::thread
   )
   gtest_discover_tests_xcompile(sapi_strerror_test)
 

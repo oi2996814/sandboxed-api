@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,9 +19,12 @@
 
 #include <cstdint>
 #include <cstring>
+#include <functional>
+#include <vector>
 
-#include <glog/logging.h>
-#include "sandboxed_api/util/flag.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/strings/string_view.h"
 #include "sandboxed_api/sandbox2/client.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/util.h"
@@ -45,11 +48,11 @@ static uint32_t ComputeCRC4Impl(const uint8_t* ptr, uint64_t len) {
   return crc4;
 }
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, false);
+int main(int argc, char* argv[]) {
+  absl::ParseCommandLine(argc, argv);
 
   // Set-up the sandbox2::Client object, using a file descriptor (1023).
-  sandbox2::Comms comms(sandbox2::Comms::kSandbox2ClientCommsFD);
+  sandbox2::Comms comms(sandbox2::Comms::kDefaultConnection);
   sandbox2::Client sandbox2_client(&comms);
   // Enable sandboxing from here.
   sandbox2_client.SandboxMeHere();

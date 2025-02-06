@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,76 +16,11 @@
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
+load("//sandboxed_api/bazel:llvm_config.bzl", "llvm_configure")
 load("//sandboxed_api/bazel:repositories.bzl", "autotools_repository")
 
-def sapi_deps():
-    """Loads common dependencies needed to compile Sandboxed API."""
-
-    # Bazel Skylib, needed by newer Protobuf builds
-    maybe(
-        http_archive,
-        name = "bazel_skylib",
-        urls = [
-            "https://github.com/bazelbuild/bazel-skylib/releases/download/1.0.3/bazel-skylib-1.0.3.tar.gz",
-            "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.0.3/bazel-skylib-1.0.3.tar.gz",
-        ],
-        sha256 = "1c531376ac7e5a180e0237938a2536de0c54d93f5c278634818e0efc952dd56c",  # 2020-08-27
-    )
-
-    # Abseil
-    maybe(
-        http_archive,
-        name = "com_google_absl",
-        sha256 = "7192966b3ca413e7f7f141fac24725571d457f608cb3fc1182167006f50f5155",  # 2021-04-23
-        strip_prefix = "abseil-cpp-d96e287417766deddbff2d01b96321288c59491e",
-        urls = ["https://github.com/abseil/abseil-cpp/archive/d96e287417766deddbff2d01b96321288c59491e.zip"],
-    )
-    maybe(
-        http_archive,
-        name = "com_google_absl_py",
-        sha256 = "3d0278d88bbd52993f381d1e20887fa30f0556f6263b3f7bfcad62c69f39b38e",  # 2021-03-09
-        strip_prefix = "abseil-py-9954557f9df0b346a57ff82688438c55202d2188",
-        urls = ["https://github.com/abseil/abseil-py/archive/9954557f9df0b346a57ff82688438c55202d2188.zip"],
-    )
-
-    # Abseil-py dependency for Python 2/3 compatiblity
-    maybe(
-        http_archive,
-        name = "six_archive",
-        build_file = "@com_google_sandboxed_api//sandboxed_api:bazel/external/six.BUILD",
-        sha256 = "30639c035cdb23534cd4aa2dd52c3bf48f06e5f4a941509c8bafd8ce11080259",  # 2020-05-21
-        strip_prefix = "six-1.15.0",
-        urls = ["https://pypi.python.org/packages/source/s/six/six-1.15.0.tar.gz"],
-    )
-
-    # gflags
-    # TODO(cblichmann): Use Abseil flags once logging is in Abseil
-    maybe(
-        http_archive,
-        name = "com_github_gflags_gflags",
-        sha256 = "97312c67e5e0ad7fe02446ee124629ca7890727469b00c9a4bf45da2f9b80d32",  # 2019-11-13
-        strip_prefix = "gflags-addd749114fab4f24b7ea1e0f2f837584389e52c",
-        urls = ["https://github.com/gflags/gflags/archive/addd749114fab4f24b7ea1e0f2f837584389e52c.zip"],
-    )
-
-    # Google logging
-    # TODO(cblichmann): Remove dependency once logging is in Abseil
-    maybe(
-        http_archive,
-        name = "com_google_glog",
-        sha256 = "feca3c7e29a693cab7887409756d89d342d4a992d54d7c5599bebeae8f7b50be",  # 2020-02-16
-        strip_prefix = "glog-3ba8976592274bc1f907c402ce22558011d6fc5e",
-        urls = ["https://github.com/google/glog/archive/3ba8976592274bc1f907c402ce22558011d6fc5e.zip"],
-    )
-
-    # Protobuf
-    maybe(
-        http_archive,
-        name = "com_google_protobuf",
-        sha256 = "dd513a79c7d7e45cbaeaf7655289f78fd6b806e52dbbd7018ef4e3cf5cff697a",  # 2021-04-08
-        strip_prefix = "protobuf-3.15.8",
-        urls = ["https://github.com/protocolbuffers/protobuf/archive/v3.15.8.zip"],
-    )
+def sapi_non_module_deps():
+    """Loads non-modularized dependencies."""
 
     # libcap
     http_archive(
@@ -115,7 +50,94 @@ def sapi_deps():
             "--disable-shared",
             "--enable-ptrace",
         ],
-        sha256 = "3f3ecb90e28cbe53fba7a4a27ccce7aad188d3210bb1964a923a731a27a75acb",  # 2017-06-15
-        strip_prefix = "libunwind-1.2.1",
-        urls = ["https://github.com/libunwind/libunwind/releases/download/v1.2.1/libunwind-1.2.1.tar.gz"],
+        sha256 = "4a6aec666991fb45d0889c44aede8ad6eb108071c3554fcdff671f9c94794976",  # 2021-12-01
+        strip_prefix = "libunwind-1.6.2",
+        urls = ["https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"],
     )
+
+    # LLVM/libclang
+    maybe(
+        llvm_configure,
+        name = "llvm-project",
+        commit = "2c494f094123562275ae688bd9e946ae2a0b4f8b",  # 2022-03-31
+        sha256 = "59b9431ae22f0ea5f2ce880925c0242b32a9e4f1ae8147deb2bb0fc19b53fa0d",
+        system_libraries = True,  # Prefer system libraries
+    )
+
+def sapi_deps():
+    """Loads common dependencies needed to compile Sandboxed API."""
+
+    # Bazel rules_python
+    maybe(
+        http_archive,
+        name = "rules_python",
+        sha256 = "c6fb25d0ba0246f6d5bd820dd0b2e66b339ccc510242fd4956b9a639b548d113",  # 2024-10-27
+        strip_prefix = "rules_python-0.37.2",
+        urls = ["https://github.com/bazelbuild/rules_python/releases/download/0.37.2/rules_python-0.37.2.tar.gz"],
+    )
+
+    # Bazel Skylib
+    maybe(
+        http_archive,
+        name = "bazel_skylib",
+        sha256 = "bc283cdfcd526a52c3201279cda4bc298652efa898b10b4db0837dc51652756f",  # 2024-06-03
+        urls = [
+            "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.7.1/bazel-skylib-1.7.1.tar.gz",
+            "https://github.com/bazelbuild/bazel-skylib/releases/download/1.7.1/bazel-skylib-1.7.1.tar.gz",
+        ],
+    )
+
+    # Abseil
+    maybe(
+        http_archive,
+        name = "com_google_absl",
+        sha256 = "571549a0fa17ebf46f517541bb8d66fe369493963d463409fe61f2b8a44eb2dc",  # 2024-04-05
+        strip_prefix = "abseil-cpp-fa588813c4b2d931737bbe7c4b4f7fa6ed7509db",
+        urls = ["https://github.com/abseil/abseil-cpp/archive/fa588813c4b2d931737bbe7c4b4f7fa6ed7509db.zip"],
+    )
+    maybe(
+        http_archive,
+        name = "com_google_absl_py",
+        sha256 = "8a3d0830e4eb4f66c4fa907c06edf6ce1c719ced811a12e26d9d3162f8471758",  # 2024-01-16
+        strip_prefix = "abseil-py-2.1.0",
+        urls = ["https://github.com/abseil/abseil-py/archive/refs/tags/v2.1.0.tar.gz"],
+    )
+
+    # Abseil-py dependency for Python 2/3 compatiblity
+    maybe(
+        http_archive,
+        name = "six_archive",
+        build_file = "@com_google_sandboxed_api//sandboxed_api:bazel/external/six.BUILD",
+        sha256 = "30639c035cdb23534cd4aa2dd52c3bf48f06e5f4a941509c8bafd8ce11080259",  # 2020-05-21
+        strip_prefix = "six-1.15.0",
+        urls = ["https://pypi.python.org/packages/source/s/six/six-1.15.0.tar.gz"],
+    )
+
+    # Protobuf
+    maybe(
+        http_archive,
+        name = "com_google_protobuf",
+        sha256 = "b2340aa47faf7ef10a0328190319d3f3bee1b24f426d4ce8f4253b6f27ce16db",  # 2024-09-18
+        strip_prefix = "protobuf-28.2",
+        urls = ["https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protobuf-28.2.tar.gz"],
+    )
+
+    # GoogleTest/GoogleMock
+    maybe(
+        http_archive,
+        name = "com_google_googletest",
+        sha256 = "a217118c2c36a3632b594af7ff98111a65bb2b980b726a7fa62305e02a998440",  # 2023-06-06
+        strip_prefix = "googletest-334704df263b480a3e9e7441ed3292a5e30a37ec",
+        urls = ["https://github.com/google/googletest/archive/334704df263b480a3e9e7441ed3292a5e30a37ec.zip"],
+    )
+
+    # Google Benchmark
+    maybe(
+        http_archive,
+        name = "com_google_benchmark",
+        sha256 = "342705876335bf894147e052d0dac141fe15962034b41bef5aa59c4b279ca89c",  # 2023-05-30
+        strip_prefix = "benchmark-604f6fd3f4b34a84ec4eb4db81d842fa4db829cd",
+        urls = ["https://github.com/google/benchmark/archive/604f6fd3f4b34a84ec4eb4db81d842fa4db829cd.zip"],
+    )
+
+    sapi_non_module_deps()

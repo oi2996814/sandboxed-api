@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,50 +16,53 @@
 
 #include "sandboxed_api/sandbox2/sandbox2.h"
 
-#include <csignal>
 #include <memory>
-#include <string>
+#include <utility>
 
-#include "absl/memory/memory.h"
+#include "absl/base/call_once.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-#include "sandboxed_api/sandbox2/monitor.h"
+#include "sandboxed_api/sandbox2/monitor_base.h"
+#include "sandboxed_api/sandbox2/monitor_ptrace.h"
+#include "sandboxed_api/sandbox2/monitor_unotify.h"
 #include "sandboxed_api/sandbox2/result.h"
+#include "sandboxed_api/sandbox2/stack_trace.h"
 
 namespace sandbox2 {
 
-Sandbox2::~Sandbox2() {
-  if (monitor_thread_ && monitor_thread_->joinable()) {
-    monitor_thread_->join();
+namespace {
+
+class Sandbox2Peer : public internal::SandboxPeer {
+ public:
+  static std::unique_ptr<SandboxPeer> Spawn(std::unique_ptr<Executor> executor,
+                                            std::unique_ptr<Policy> policy) {
+    return std::make_unique<Sandbox2Peer>(std::move(executor),
+                                          std::move(policy));
   }
-}
+
+  Sandbox2Peer(std::unique_ptr<Executor> executor,
+               std::unique_ptr<Policy> policy)
+      : sandbox_(std::move(executor), std::move(policy)) {
+    sandbox_.RunAsync();
+  }
+
+  Comms* comms() override { return sandbox_.comms(); }
+  void Kill() override { sandbox_.Kill(); }
+  Result AwaitResult() override { return sandbox_.AwaitResult(); }
+
+ private:
+  Sandbox2 sandbox_;
+};
+
+}  // namespace
 
 absl::StatusOr<Result> Sandbox2::AwaitResultWithTimeout(
     absl::Duration timeout) {
   CHECK(monitor_ != nullptr) << "Sandbox was not launched yet";
-  CHECK(monitor_thread_ != nullptr) << "Sandbox was already waited on";
-
-  auto done =
-      monitor_->done_notification_.WaitForNotificationWithTimeout(timeout);
-  if (!done) {
-    return absl::DeadlineExceededError("Sandbox did not finish within timeout");
-  }
-  {
-    absl::MutexLock lock(&monitor_notify_mutex_);
-    monitor_thread_->join();
-
-    CHECK(IsTerminated()) << "Monitor did not terminate";
-
-    // Reset the Monitor Thread object to its initial state, as to mark that
-    // this object cannot be used anymore to control behavior of the sandboxee
-    // (e.g. via signals).
-    monitor_thread_.reset();
-  }
-
-  VLOG(1) << "Final execution status: " << monitor_->result_.ToString();
-  CHECK(monitor_->result_.final_status() != Result::UNSET);
-  return std::move(monitor_->result_);
+  return monitor_->AwaitResultWithTimeout(timeout);
 }
 
 Result Sandbox2::AwaitResult() {
@@ -67,65 +70,80 @@ Result Sandbox2::AwaitResult() {
 }
 
 bool Sandbox2::RunAsync() {
+  CHECK(monitor_ == nullptr) << "Sandbox was launched already";
   Launch();
 
   // If the sandboxee setup failed we return 'false' here.
   if (monitor_->IsDone() &&
-      monitor_->result_.final_status() == Result::SETUP_ERROR) {
+      monitor_->result().final_status() == Result::SETUP_ERROR) {
     return false;
   }
   return true;
 }
 
-void Sandbox2::NotifyMonitor() {
-  absl::ReaderMutexLock lock(&monitor_notify_mutex_);
-  if (monitor_thread_ != nullptr) {
-    pthread_kill(monitor_thread_->native_handle(), SIGCHLD);
-  }
-}
-
 void Sandbox2::Kill() {
   CHECK(monitor_ != nullptr) << "Sandbox was not launched yet";
-
-  monitor_->external_kill_request_flag_.clear(std::memory_order_relaxed);
-  NotifyMonitor();
+  monitor_->Kill();
 }
 
 void Sandbox2::DumpStackTrace() {
   CHECK(monitor_ != nullptr) << "Sandbox was not launched yet";
-
-  monitor_->dump_stack_request_flag_.clear(std::memory_order_relaxed);
-  NotifyMonitor();
+  monitor_->DumpStackTrace();
 }
 
 bool Sandbox2::IsTerminated() const {
   CHECK(monitor_ != nullptr) << "Sandbox was not launched yet";
-
   return monitor_->IsDone();
 }
 
 void Sandbox2::set_walltime_limit(absl::Duration limit) const {
-  if (limit == absl::ZeroDuration()) {
-    VLOG(1) << "Disarming walltime timer to ";
-    monitor_->deadline_millis_.store(0, std::memory_order_relaxed);
-  } else {
-    VLOG(1) << "Will set the walltime timer to " << limit;
-    absl::Time deadline = absl::Now() + limit;
-    monitor_->deadline_millis_.store(absl::ToUnixMillis(deadline),
-                                     std::memory_order_relaxed);
-  }
+  CHECK(monitor_ != nullptr) << "Sandbox was not launched yet";
+  monitor_->SetWallTimeLimit(limit);
 }
 
 void Sandbox2::Launch() {
-  monitor_ =
-      absl::make_unique<Monitor>(executor_.get(), policy_.get(), notify_.get());
-  monitor_thread_ =
-      absl::make_unique<std::thread>(&Monitor::Run, monitor_.get());
+  static absl::once_flag init_sandbox_peer_flag;
+  absl::call_once(init_sandbox_peer_flag, []() {
+    internal::SandboxPeer::spawn_fn_ = Sandbox2Peer::Spawn;
+  });
 
-  // Wait for the Monitor to set-up the sandboxee correctly (or fail while
-  // doing that). From here on, it is safe to use the IPC object for
-  // non-sandbox-related data exchange.
-  monitor_->setup_notification_.WaitForNotification();
+  monitor_ = CreateMonitor();
+  monitor_->Launch();
+}
+
+absl::Status Sandbox2::EnableUnotifyMonitor() {
+  if (notify_) {
+    LOG(WARNING) << "Using unotify monitor with experimental support for "
+                    "notifications. Notifications about signals via "
+                    "EventSignal will not work.";
+  }
+  if (!policy_->GetNamespace()) {
+    return absl::FailedPreconditionError(
+        "Unotify monitor can only be used together with namespaces");
+  }
+  if (policy_->collect_stacktrace_on_signal()) {
+    return absl::FailedPreconditionError(
+        "Unotify monitor cannot collect stack traces on signal");
+  }
+
+  if (policy_->collect_stacktrace_on_exit()) {
+    return absl::FailedPreconditionError(
+        "Unotify monitor cannot collect stack traces on normal exit");
+  }
+  use_unotify_monitor_ = true;
+  return absl::OkStatus();
+}
+
+std::unique_ptr<MonitorBase> Sandbox2::CreateMonitor() {
+  if (!notify_) {
+    notify_ = std::make_unique<Notify>();
+  }
+  if (use_unotify_monitor_) {
+    return std::make_unique<UnotifyMonitor>(executor_.get(), policy_.get(),
+                                            notify_.get());
+  }
+  return std::make_unique<PtraceMonitor>(executor_.get(), policy_.get(),
+                                         notify_.get());
 }
 
 }  // namespace sandbox2

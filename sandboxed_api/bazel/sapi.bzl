@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,9 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Macros that simplifies header and library generation for Sandboxed API."""
+"""Starlark rules for projects using Sandboxed API."""
 
-load("//sandboxed_api/bazel:embed_data.bzl", "sapi_cc_embed_data")
+load("@com_google_sandboxed_api//sandboxed_api/bazel:build_defs.bzl", "sapi_platform_copts")
+load("@com_google_sandboxed_api//sandboxed_api/bazel:embed_data.bzl", "sapi_cc_embed_data")
+load(
+    "@com_google_sandboxed_api//sandboxed_api/bazel:proto.bzl",
+    _sapi_proto_library = "sapi_proto_library",
+)
+load("@bazel_tools//tools/cpp:toolchain_utils.bzl", "find_cpp_toolchain", "use_cpp_toolchain")
+
+# Reexport symbols
+sapi_proto_library = _sapi_proto_library
 
 # Helper functions
 def append_arg(arguments, name, value):
@@ -30,14 +39,41 @@ def append_all(arguments, name, values):
 def get_embed_dir():
     return native.package_name()
 
+def make_exec_label(label):
+    return attr.label(
+        default = label,
+        cfg = "exec",
+        allow_files = True,
+        executable = True,
+    )
+
+# buildifier: disable=function-docstring
+def select_generator(ctx):
+    if ctx.attr.generator_version == 1:
+        return ctx.executable._generator_v1
+    return ctx.executable._generator_v2
+
 def sort_deps(deps):
+    """Sorts a list of dependencies.
+
+    This does not convert absolute references targeting the current package
+    into relative ones.
+
+    Args:
+      deps: List of labels to be sorted
+    Returns:
+      A sorted list of dependencies, with local deps (starting with ":") first.
+    """
+
     deps = depset(deps).to_list()
     colon_deps = [x for x in deps if x.startswith(":")]
     other_deps = [x for x in deps if not x.startswith(":")]
     return sorted(colon_deps) + sorted(other_deps)
 
-def sapi_interface_impl(ctx):
-    """Implementation of build rule that generates SAPI interface."""
+def _sapi_interface_impl(ctx):
+    cpp_toolchain = find_cpp_toolchain(ctx)
+    generator = select_generator(ctx)
+    use_clang_generator = ctx.attr.generator_version == 2
 
     # TODO(szwl): warn if input_files is not set and we didn't find anything
     input_files_paths = []
@@ -50,61 +86,65 @@ def sapi_interface_impl(ctx):
     append_arg(args, "--sapi_embed_name", ctx.attr.embed_name)
     append_arg(args, "--sapi_functions", ",".join(ctx.attr.functions))
     append_arg(args, "--sapi_ns", ctx.attr.namespace)
-    if ctx.attr.isystem:
-        isystem = ctx.attr.isystem.files.to_list()[0]
-        append_arg(args, "--sapi_isystem", isystem.path)
-        input_files += [isystem]
+
+    if ctx.attr.limit_scan_depth:
+        args.append("--sapi_limit_scan_depth")
 
     # Parse provided files.
 
     # The parser doesn't need the entire set of transitive headers
-    # here, just the top-level cc_library headers. It would be nice
-    # if Skylark or Bazel provided this, but it is surprisingly hard
-    # to get.
+    # here, just the top-level cc_library headers.
     #
     # Allow all headers through that contain the dependency's
     # package path. Including extra headers is harmless except that
     # we may hit Bazel's file-count limit, so be conservative and
     # pass a lot through that we don't strictly need.
-
+    #
     extra_flags = []
-    if ctx.attr.lib[CcInfo]:
-        cc_ctx = ctx.attr.lib[CcInfo].compilation_context
+    cc_ctx = ctx.attr.lib[CcInfo].compilation_context
 
-        # Append system headers as dependencies
-        input_files += cc_ctx.headers.to_list()
+    # Append all headers as dependencies
+    input_files += cc_ctx.headers.to_list()
+
+    if use_clang_generator:
+        input_files += cpp_toolchain.all_files.to_list()
+
+        # TODO(cblichmann): Get language standard from the toolchain
+        extra_flags.append("--extra-arg=-std=c++17")
+
+        # Disable warnings in parsed code
+        extra_flags.append("--extra-arg=-Wno-everything")
+        extra_flags += ["--extra-arg=-D{}".format(d) for d in cc_ctx.defines.to_list()]
+        extra_flags += ["--extra-arg=-isystem{}".format(i) for i in cc_ctx.system_includes.to_list()]
+        extra_flags += ["--extra-arg=-iquote{}".format(i) for i in cc_ctx.quote_includes.to_list()]
+        extra_flags += ["--extra-arg=-isystem{}".format(d) for d in cpp_toolchain.built_in_include_directories]
+        extra_flags += ["--extra-arg=-I{}".format(d) for d in cc_ctx.includes.to_list()]
+    else:
         append_all(extra_flags, "-D", cc_ctx.defines.to_list())
         append_all(extra_flags, "-isystem", cc_ctx.system_includes.to_list())
         append_all(extra_flags, "-iquote", cc_ctx.quote_includes.to_list())
+        append_all(extra_flags, "-I", cc_ctx.includes.to_list())
 
-        if ctx.attr.input_files:
-            for h in cc_ctx.headers.to_list():
-                # Collect all headers as dependency in case libclang needs them.
-                if h.extension == "h" and "/PROTECTED/" not in h.path:
-                    input_files.append(h)
-            for target in ctx.attr.input_files:
-                if target.files:
-                    for f in target.files.to_list():
-                        input_files_paths.append(f.path)
-                        input_files.append(f)
+    if ctx.attr.input_files:
+        for f in ctx.files.input_files:
+            input_files.append(f)
+            input_files_paths.append(f.path)
+    else:
+        # Try to find files automatically
+        for h in cc_ctx.direct_headers:
+            if h.extension != "h" or "/PROTECTED/" in h.path:
+                continue
 
-            # Try to find files automatically.
-        else:
-            for h in cc_ctx.headers.to_list():
-                # Collect all headers as dependency in case clang needs them.
-                if h.extension == "h" and "/PROTECTED/" not in h.path:
-                    input_files.append(h)
+            # Include only headers coming from the target
+            # not ones that it depends on by comparing the label packages.
+            if (h.owner.package == ctx.attr.lib.label.package):
+                input_files_paths.append(h.path)
 
-                    # Include only headers coming from the target
-                    # not ones that it depends on by comparing the label packages.
-                    if (h.owner.package == ctx.attr.lib.label.package):
-                        input_files_paths.append(h.path)
-
+    if use_clang_generator:
+        args += extra_flags + input_files_paths
+    else:
         append_arg(args, "--sapi_in", ",".join(input_files_paths))
         args += ["--"] + extra_flags
-    else:
-        # TODO(szwl): Error out if the lib has no cc.
-        pass
 
     progress_msg = ("Generating {} from {} header files." +
                     "").format(ctx.outputs.out.short_path, len(input_files_paths))
@@ -112,64 +152,133 @@ def sapi_interface_impl(ctx):
         inputs = input_files,
         outputs = [ctx.outputs.out],
         arguments = args,
+        mnemonic = "SapiInterfaceGen",
         progress_message = progress_msg,
-        executable = ctx.executable._sapi_generator,
+        executable = generator,
     )
 
 # Build rule that generates SAPI interface.
 sapi_interface = rule(
-    implementation = sapi_interface_impl,
+    implementation = _sapi_interface_impl,
     attrs = {
         "out": attr.output(mandatory = True),
         "embed_dir": attr.string(),
         "embed_name": attr.string(),
-        "functions": attr.string_list(allow_empty = True, default = []),
-        "include_prefix": attr.string(),
-        "input_files": attr.label_list(allow_files = True),
-        "lib": attr.label(mandatory = True),
+        "functions": attr.string_list(
+            allow_empty = True,
+            default = [],
+        ),
+        "input_files": attr.label_list(
+            providers = [CcInfo],
+            allow_files = True,
+        ),
+        "lib": attr.label(
+            providers = [CcInfo],
+            mandatory = True,
+        ),
         "lib_name": attr.string(mandatory = True),
         "namespace": attr.string(),
-        "isystem": attr.label(),
-        "_sapi_generator": attr.label(
-            executable = True,
-            cfg = "host",
-            allow_files = True,
-            default = Label("@com_google_sandboxed_api//sandboxed_api/" +
-                            "tools/generator2:sapi_generator"),
+        "limit_scan_depth": attr.bool(default = False),
+        "api_version": attr.int(
+            default = 1,
+            values = [1],  # Only a single version is defined right now
+        ),
+        "generator_version": attr.int(
+            default = 1,
+            values = [1, 2],
+        ),
+        "_generator_v1": make_exec_label(
+            "//sandboxed_api/tools/python_generator:sapi_generator",
+        ),
+        "_generator_v2": make_exec_label(
+            # TODO(cblichmann): Add prebuilt version of Clang based generator
+            "@com_google_sandboxed_api//sandboxed_api/tools/clang_generator:generator_tool",
         ),
     },
-    output_to_genfiles = True,
+    toolchains = use_cpp_toolchain(),
 )
 
 def sapi_library(
         name,
         lib,
         lib_name,
+        malloc = "@bazel_tools//tools/cpp:malloc",
         namespace = "",
+        api_version = 1,
         embed = True,
         add_default_deps = True,
+        limit_scan_depth = False,
         srcs = [],
+        data = [],
         hdrs = [],
+        copts = sapi_platform_copts(),
+        defines = [],
         functions = [],
         header = "",
         input_files = [],
         deps = [],
         tags = [],
-        visibility = None):
-    """Provides the implementation of a Sandboxed API library."""
+        generator_version = 1,
+        visibility = None,
+        compatible_with = None,
+        default_copts = [],
+        exec_properties = {}):
+    """Provides the implementation of a Sandboxed API library.
 
-    rprefix = "@com_google_sandboxed_api"
+    Args:
+      name: Name of the sandboxed library
+      lib: Label of the library target to sandbox
+      lib_name: Name of the class which will proxy the library functions from
+        the functions list
+      malloc: Override the default dependency on malloc
+      namespace: A C++ namespace identifier to place the API class into
+      embed: Whether the SAPI library should be embedded inside the host code
+      add_default_deps: Add SAPI dependencies to target (deprecated)
+      limit_scan_depth: Limit include depth for header generator (deprecated)
+      api_version: Which version of the Sandboxed API to generate. Currently,
+        only version 1 is defined.
+      srcs: Any additional sources to include with the sandboxed library
+      data: To be used with srcs, any additional data files to make available
+        to the sandboxed library.
+      hdrs: Like srcs, any additional headers to include with the sandboxed
+        library
+      copts: Add these options to the C++ compilation command. See
+        cc_library.copts.
+      defines: List of defines to add to the compile line. See
+        cc_library.defines.
+      functions: A list for function to use from host code
+      header: If set, do not generate a header, but use the specified one
+        (deprecated).
+      input_files: List of source files which the SAPI interface generator
+        should scan for function declarations
+      deps: Extra dependencies to add to the SAPI library
+      tags: Extra tags to associate with the target
+      generator_version: Which version the the interface generator to use
+        (experimental). Version 1 uses the Python/libclang based `python_generator`,
+        version 2 uses the newer C++ implementation that uses the full clang
+        compiler front-end for parsing. Both emit equivalent Sandboxed APIs.
+      visibility: Target visibility
+      compatible_with: The list of environments this target can be built for,
+        in addition to default-supported environments.
+      default_copts: List of package level default copts, an additional
+        attribute since copts already has default value.
+      exec_properties: Dict of executable properties to be passed to the generated binary targets.
+    """
+
     common = {
         "tags": tags,
     }
     if visibility:
         common["visibility"] = visibility
 
+    if compatible_with != None:
+        common["compatible_with"] = compatible_with
+
     generated_header = name + ".sapi.h"
 
     # Reference (pull into the archive) required functions only. If the functions'
     # array is empty, pull in the whole archive (may not compile with MSAN).
-    exported_funcs = ["-Wl,--export-dynamic-symbol," + s for s in functions]
+    exported_funcs = ["-Wl,-u," + s for s in functions]
     if (not exported_funcs):
         exported_funcs = [
             "-Wl,--whole-archive",
@@ -182,22 +291,25 @@ def sapi_library(
     else:
         lib_hdrs += [generated_header]
 
-    default_deps = [rprefix + "//sandboxed_api/sandbox2"]
+    default_deps = ["@com_google_sandboxed_api//sandboxed_api/sandbox2"]
 
     # Library that contains generated interface and sandboxed binary as a data
     # dependency. Add this as a dependency instead of original library.
     native.cc_library(
         name = name,
         srcs = srcs,
+        data = [":" + name + ".bin"] + data,
         hdrs = lib_hdrs,
-        data = [":" + name + ".bin"],
+        copts = default_copts + copts,
+        defines = defines,
         deps = sort_deps(
             [
+                "@com_google_absl//absl/base:core_headers",
                 "@com_google_absl//absl/status",
                 "@com_google_absl//absl/status:statusor",
-                rprefix + "//sandboxed_api:sapi",
-                rprefix + "//sandboxed_api/util:status",
-                rprefix + "//sandboxed_api:vars",
+                "@com_google_sandboxed_api//sandboxed_api:sapi",
+                "@com_google_sandboxed_api//sandboxed_api/util:status",
+                "@com_google_sandboxed_api//sandboxed_api:vars",
             ] + deps +
             ([":" + name + "_embed"] if embed else []) +
             (default_deps if add_default_deps else []),
@@ -209,15 +321,15 @@ def sapi_library(
         name = name + ".bin",
         linkopts = [
             "-ldl",  # For dlopen(), dlsym()
-            # The sandboxing client must have access to all symbols used in
-            # the sandboxed library, so these must be both referenced, and
-            # exported
-            "-Wl,-E",
-        ] + exported_funcs,
+            # The sandboxing client must have access to all
+            "-Wl,-E",  # symbols used in the sandboxed library, so these
+        ] + exported_funcs,  # must be both referenced, and exported
+        malloc = malloc,
         deps = [
             ":" + name + ".lib",
-            rprefix + "//sandboxed_api:client",
+            "@com_google_sandboxed_api//sandboxed_api:client",
         ],
+        copts = default_copts,
         **common
     )
 
@@ -225,6 +337,7 @@ def sapi_library(
         name = name + ".lib",
         deps = [lib],
         alwayslink = 1,  # All functions are linked into depending binaries
+        copts = default_copts,
         **common
     )
 
@@ -251,15 +364,8 @@ def sapi_library(
         embed_name = embed_name,
         embed_dir = embed_dir,
         namespace = namespace,
-        isystem = ":" + name + ".isystem",
+        api_version = api_version,
+        generator_version = generator_version,
+        limit_scan_depth = limit_scan_depth,
         **common
-    )
-
-    native.genrule(
-        name = name + ".isystem",
-        outs = [name + ".isystem.list"],
-        cmd = """$(CC) -E -x c++ -v /dev/null 2>&1 |
-                 awk '/> search starts here:/{f=1;next}/^End of search/{f=0}f{print $$1}' > $@
-              """,
-        toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
     )

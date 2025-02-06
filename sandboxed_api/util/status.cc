@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,7 +14,13 @@
 
 #include "sandboxed_api/util/status.h"
 
+#include <string>
+#include <utility>
+
 #include "absl/status/status.h"
+#include "absl/strings/cord.h"
+#include "absl/strings/string_view.h"
+#include "sandboxed_api/util/status.pb.h"
 
 namespace sapi {
 
@@ -31,8 +37,11 @@ void SaveStatusToProto(const absl::Status& status, StatusProto* out) {
 absl::Status MakeStatusFromProto(const StatusProto& proto) {
   absl::Status status(static_cast<absl::StatusCode>(proto.code()),
                       proto.message());
-  for (const auto& [type_key, payload] : proto.payloads()) {
-    status.SetPayload(type_key, absl::Cord(payload));
+  // Note: Using C++17 structured bindings instead of `entry` crashes Clang 6.0
+  // on Ubuntu 18.04 (bionic).
+  for (const auto& entry : proto.payloads()) {
+    status.SetPayload(/*type_url=*/entry.first,
+                      /*payload=*/absl::Cord(entry.second));
   }
   return status;
 }

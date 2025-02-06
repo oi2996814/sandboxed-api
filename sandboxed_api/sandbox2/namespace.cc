@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,23 +23,22 @@
 #include <sys/mount.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <syscall.h>
 #include <unistd.h>
 
-#include <cstdio>
+#include <cstdint>
 #include <cstring>
+#include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
-#include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
-#include "sandboxed_api/sandbox2/util.h"
+#include "sandboxed_api/sandbox2/forkserver.pb.h"
+#include "sandboxed_api/sandbox2/mounts.h"
 #include "sandboxed_api/util/fileops.h"
 #include "sandboxed_api/util/path.h"
 #include "sandboxed_api/util/raw_logging.h"
-#include "sandboxed_api/util/strerror.h"
 
 namespace sandbox2 {
 
@@ -67,8 +66,9 @@ int MountFallbackToReadOnly(const char* source, const char* target,
 
 void PrepareChroot(const Mounts& mounts) {
   // Create a tmpfs mount for the new rootfs.
-  SAPI_RAW_CHECK(util::CreateDirRecursive(kSandbox2ChrootPath, 0700),
-                 "could not create directory for rootfs");
+  SAPI_RAW_CHECK(
+      file_util::fileops::CreateDirectoryRecursively(kSandbox2ChrootPath, 0700),
+      "could not create directory for rootfs");
   SAPI_RAW_PCHECK(mount("none", kSandbox2ChrootPath, "tmpfs", 0, nullptr) == 0,
                   "mounting rootfs failed");
 
@@ -196,25 +196,25 @@ void LogFilesystem(const std::string& dir) {
 
 }  // namespace
 
-Namespace::Namespace(bool allow_unrestricted_networking, Mounts mounts,
-                     std::string hostname)
-    : clone_flags_(CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWPID |
-                   CLONE_NEWIPC),
-      mounts_(std::move(mounts)),
-      hostname_(std::move(hostname)) {
-  if (!allow_unrestricted_networking) {
-    clone_flags_ |= CLONE_NEWNET;
+Namespace::Namespace(Mounts mounts, std::string hostname,
+                     NetNsMode netns_config, bool allow_mount_propagation)
+    : mounts_(std::move(mounts)),
+      hostname_(std::move(hostname)),
+      allow_mount_propagation_(allow_mount_propagation),
+      netns_config_(netns_config) {
+  // Remove the CLONE_NEWNET flag to allow networking, or for the shared netns.
+  // In the latter case, the flag will be added later on.
+  if (netns_config_ == NETNS_MODE_NONE ||
+      netns_config_ == NETNS_MODE_SHARED_PER_FORKSERVER) {
+    clone_flags_ &= ~CLONE_NEWNET;
   }
 }
 
-void Namespace::DisableUserNamespace() { clone_flags_ &= ~CLONE_NEWUSER; }
-
-int32_t Namespace::GetCloneFlags() const { return clone_flags_; }
-
 void Namespace::InitializeNamespaces(uid_t uid, gid_t gid, int32_t clone_flags,
-                                     const Mounts& mounts, bool mount_proc,
+                                     const Mounts& mounts,
                                      const std::string& hostname,
-                                     bool avoid_pivot_root) {
+                                     bool avoid_pivot_root,
+                                     bool allow_mount_propagation) {
   if (clone_flags & CLONE_NEWUSER && !avoid_pivot_root) {
     SetupIDMaps(uid, gid);
   }
@@ -228,7 +228,7 @@ void Namespace::InitializeNamespaces(uid_t uid, gid_t gid, int32_t clone_flags,
   if (avoid_pivot_root) {
     // We want to bind-mount chrooted to real root, so that symlinks work.
     // Reference to main root is kept to escape later from the chroot
-    root_fd = absl::make_unique<file_util::fileops::FDCloser>(
+    root_fd = std::make_unique<file_util::fileops::FDCloser>(
         TEMP_FAILURE_RETRY(open("/", O_PATH)));
     SAPI_RAW_CHECK(root_fd->get() != -1, "creating fd for main root");
 
@@ -237,8 +237,8 @@ void Namespace::InitializeNamespaces(uid_t uid, gid_t gid, int32_t clone_flags,
   }
 
   SAPI_RAW_PCHECK(
-      !mount_proc || mount("", "/proc", "proc",
-                           MS_NODEV | MS_NOEXEC | MS_NOSUID, nullptr) != -1,
+      mount("", "/proc", "proc", MS_NODEV | MS_NOEXEC | MS_NOSUID, nullptr) !=
+          -1,
       "Could not mount a new /proc"
   );
 
@@ -325,10 +325,15 @@ void Namespace::InitializeNamespaces(uid_t uid, gid_t gid, int32_t clone_flags,
   SAPI_RAW_PCHECK(chdir("/") == 0,
                   "changing cwd after mntns initialization failed");
 
-  SAPI_RAW_PCHECK(mount("/", "/", "", MS_PRIVATE | MS_REC, nullptr) == 0,
-                  "changing mount propagation to private failed");
+  if (allow_mount_propagation) {
+    SAPI_RAW_PCHECK(mount("/", "/", "", MS_SLAVE | MS_REC, nullptr) == 0,
+                    "changing mount propagation to slave failed");
+  } else {
+    SAPI_RAW_PCHECK(mount("/", "/", "", MS_PRIVATE | MS_REC, nullptr) == 0,
+                    "changing mount propagation to private failed");
+  }
 
-  if (SAPI_VLOG_IS_ON(2)) {
+  if (SAPI_RAW_VLOG_IS_ON(2)) {
     SAPI_RAW_VLOG(2, "Dumping the sandboxee's filesystem:");
     LogFilesystem("/");
   }
@@ -336,13 +341,15 @@ void Namespace::InitializeNamespaces(uid_t uid, gid_t gid, int32_t clone_flags,
 
 void Namespace::InitializeInitialNamespaces(uid_t uid, gid_t gid) {
   SetupIDMaps(uid, gid);
-  SAPI_RAW_CHECK(util::CreateDirRecursive(kSandbox2ChrootPath, 0700),
-                 "could not create directory for rootfs");
+  SAPI_RAW_CHECK(
+      file_util::fileops::CreateDirectoryRecursively(kSandbox2ChrootPath, 0700),
+      "could not create directory for rootfs");
   SAPI_RAW_PCHECK(mount("none", kSandbox2ChrootPath, "tmpfs", 0, nullptr) == 0,
                   "mounting rootfs failed");
   auto realroot_path = file::JoinPath(kSandbox2ChrootPath, "/realroot");
-  SAPI_RAW_CHECK(util::CreateDirRecursive(realroot_path, 0700),
-                 "could not create directory for real root");
+  SAPI_RAW_CHECK(
+      file_util::fileops::CreateDirectoryRecursively(realroot_path, 0700),
+      "could not create directory for real root");
   SAPI_RAW_PCHECK(syscall(__NR_pivot_root, kSandbox2ChrootPath,
                           realroot_path.c_str()) != -1,
                   "pivot root");
@@ -350,11 +357,6 @@ void Namespace::InitializeInitialNamespaces(uid_t uid, gid_t gid) {
   SAPI_RAW_PCHECK(
       mount("/", "/", "", MS_BIND | MS_REMOUNT | MS_RDONLY, nullptr) == 0,
       "remounting rootfs read-only failed");
-}
-
-void Namespace::GetNamespaceDescription(NamespaceDescription* pb_description) {
-  pb_description->set_clone_flags(clone_flags_);
-  *pb_description->mutable_mount_tree_mounts() = mounts_.GetMountTree();
 }
 
 }  // namespace sandbox2

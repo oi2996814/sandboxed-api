@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,6 +19,7 @@
 
 #include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
+#include "sandboxed_api/util/fileops.h"
 
 namespace sandbox2 {
 
@@ -28,23 +29,36 @@ constexpr inline char kForkServerDisableEnv[] = "SANDBOX2_NOFORKSERVER";
 class Comms;
 class ForkRequest;
 
+struct SandboxeeProcess {
+  pid_t init_pid = -1;
+  pid_t main_pid = -1;
+  sapi::file_util::fileops::FDCloser status_fd;
+};
+
 class ForkClient {
  public:
-  ForkClient(pid_t pid, Comms* comms) : pid_(pid), comms_(comms) {}
+  ForkClient(pid_t pid, Comms* comms) : ForkClient(pid, comms, false) {}
   ForkClient(const ForkClient&) = delete;
   ForkClient& operator=(const ForkClient&) = delete;
+  ~ForkClient();
 
   // Sends the fork request over the supplied Comms channel.
-  pid_t SendRequest(const ForkRequest& request, int exec_fd, int comms_fd,
-                    int user_ns_fd = -1, pid_t* init_pid = nullptr);
+  SandboxeeProcess SendRequest(const ForkRequest& request, int exec_fd,
+                               int comms_fd);
 
   pid_t pid() { return pid_; }
 
  private:
+  friend class GlobalForkClient;
+
+  ForkClient(pid_t pid, Comms* comms, bool is_global);
+
   // Pid of the ForkServer.
   pid_t pid_;
   // Comms channel connecting with the ForkServer. Not owned by the object.
   Comms* comms_ ABSL_GUARDED_BY(comms_mutex_);
+  // Is it the global forkserver
+  bool is_global_;
   // Mutex locking transactions (requests) over the Comms channel.
   absl::Mutex comms_mutex_;
 };

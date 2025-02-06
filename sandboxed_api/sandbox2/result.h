@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,14 +19,14 @@
 #define SANDBOXED_API_SANDBOX2_RESULT_H_
 
 #include <sys/resource.h>
-#include <sys/types.h>
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/regs.h"
@@ -79,7 +79,9 @@ class Result {
     FAILED_GETEVENT,
     FAILED_MONITOR,
     FAILED_KILL,
+    FAILED_INTERRUPT,
     FAILED_CHILD,
+    FAILED_INSPECT,
 
     // TODO(wiktorg) not used currently (syscall number stored insted) - need to
     // fix clients first
@@ -174,6 +176,13 @@ class Result {
 
   rusage* GetRUsageMonitor() { return &rusage_monitor_; }
 
+  // Only set by the unotify monitor.
+  const std::optional<rusage>& GetRUsageSandboxee() const {
+    return rusage_sandboxee_;
+  }
+
+  void SetRUsageSandboxee(rusage usage) { rusage_sandboxee_ = usage; }
+
  private:
   // Final execution status - see 'StatusEnum' for details.
   StatusEnum final_status_ = UNSET;
@@ -200,6 +209,8 @@ class Result {
   // Final resource usage as defined in <sys/resource.h> (man getrusage), for
   // the Monitor thread.
   rusage rusage_monitor_;
+  // Final resource usage for the sandboxee process, only for unotify monitor.
+  std::optional<rusage> rusage_sandboxee_;
 };
 
 }  // namespace sandbox2

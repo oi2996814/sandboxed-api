@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,9 +15,14 @@
 #ifndef SANDBOXED_API_TRANSACTION_H_
 #define SANDBOXED_API_TRANSACTION_H_
 
+#include <ctime>
+#include <functional>
 #include <memory>
+#include <utility>
 
-#include <glog/logging.h>
+#include "absl/base/attributes.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
@@ -60,11 +65,13 @@ class TransactionBase {
   }
 
   // Getter/Setter for time_limit_.
-  time_t GetTimeLimit() const { return time_limit_; }
-  void SetTimeLimit(time_t time_limit) { time_limit_ = time_limit; }
-  void SetTimeLimit(absl::Duration time_limit) {
-    time_limit_ = absl::ToTimeT(absl::UnixEpoch() + time_limit);
+  time_t GetTimeLimit() const {
+    return absl::ToTimeT(absl::UnixEpoch() + time_limit_);
   }
+  void SetTimeLimit(time_t time_limit) {
+    time_limit_ = absl::Seconds(time_limit);
+  }
+  void SetTimeLimit(absl::Duration time_limit) { time_limit_ = time_limit; }
 
   bool IsInitialized() const { return initialized_; }
 
@@ -85,8 +92,7 @@ class TransactionBase {
 
  protected:
   explicit TransactionBase(std::unique_ptr<Sandbox> sandbox)
-      : time_limit_(absl::ToTimeT(absl::UnixEpoch() + kDefaultTimeLimit)),
-        sandbox_(std::move(sandbox)) {}
+      : time_limit_(kDefaultTimeLimit), sandbox_(std::move(sandbox)) {}
 
   // Runs the main (retrying) transaction loop.
   absl::Status RunTransactionLoop(const std::function<absl::Status()>& f);
@@ -116,7 +122,7 @@ class TransactionBase {
 
   // Time (wall-time) limit for a single Run() call (in seconds). 0 means: no
   // wall-time limit.
-  time_t time_limit_;
+  absl::Duration time_limit_;
 
   // Has Init() finished with success?
   bool initialized_ = false;

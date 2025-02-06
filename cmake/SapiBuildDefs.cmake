@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,7 +19,8 @@
 # SOURCES is a list of files that should be embedded. If a source names a
 #   target the target binary is embedded instead.
 macro(sapi_cc_embed_data)
-  cmake_parse_arguments(_sapi_embed "" "OUTPUT_NAME;NAME;NAMESPACE" "SOURCES" ${ARGN})
+  cmake_parse_arguments(_sapi_embed "" "OUTPUT_NAME;NAME;NAMESPACE" "SOURCES"
+                        ${ARGN})
   foreach(src IN LISTS _sapi_embed_SOURCES)
     if(TARGET "${src}")
       get_target_property(_sapi_embed_src_OUTPUT_NAME ${src} OUTPUT_NAME)
@@ -86,39 +87,43 @@ endmacro()
 #   LIBRARY_NAME into.
 # HEADER If set, does not generate an interface header, but uses the one
 #   specified.
+# API_VERSION Which version of the Sandboxed API to generate. Currently, only
+#   version "1" is defined.
 function(add_sapi_library)
   set(_sapi_opts NOEMBED)
-  set(_sapi_one_value HEADER LIBRARY LIBRARY_NAME NAMESPACE)
+  set(_sapi_one_value HEADER LIBRARY LIBRARY_NAME NAMESPACE API_VERSION)
   set(_sapi_multi_value SOURCES FUNCTIONS INPUTS)
-  cmake_parse_arguments(_sapi
-                        "${_sapi_opts}"
-                        "${_sapi_one_value}"
-                        "${_sapi_multi_value}"
-                        ${ARGN})
+  cmake_parse_arguments(PARSE_ARGV 0 _sapi "${_sapi_opts}"
+                        "${_sapi_one_value}" "${_sapi_multi_value}")
   set(_sapi_NAME "${ARGV0}")
+
+  if(_sapi_API_VERSION AND NOT _sapi_API_VERSION VERSION_EQUAL "1")
+    message(FATAL_ERROR "API_VERSION \"1\" is the only one defined right now")
+  endif()
 
   set(_sapi_gen_header "${_sapi_NAME}.sapi.h")
   foreach(func IN LISTS _sapi_FUNCTIONS)
-    list(APPEND _sapi_exported_funcs "-Wl,--export-dynamic-symbol,${func}")
+    list(APPEND _sapi_exported_funcs "LINKER:--export-dynamic-symbol,${func}")
   endforeach()
   if(NOT _sapi_exported_funcs)
-    set(_sapi_exported_funcs -Wl,--whole-archive
-                             -Wl,--allow-multiple-definition)
+    set(_sapi_exported_funcs LINKER:--allow-multiple-definition)
   endif()
 
   # The sandboxed binary
   set(_sapi_bin "${_sapi_NAME}.bin")
-  set(_sapi_force_cxx_linkage
-    "${CMAKE_CURRENT_BINARY_DIR}/${_sapi_bin}_force_cxx_linkage.cc")
-  file(WRITE "${_sapi_force_cxx_linkage}" "")
-  add_executable("${_sapi_bin}" "${_sapi_force_cxx_linkage}")
-  # TODO(cblichmann): Use target_link_options on CMake >= 3.13
+  add_executable("${_sapi_bin}"
+    "${SAPI_BINARY_DIR}/sapi_force_cxx_linkage.cc"
+  )
   target_link_libraries("${_sapi_bin}" PRIVATE
     -fuse-ld=gold
-    "${_sapi_LIBRARY}"
+    -Wl,--whole-archive "${_sapi_LIBRARY}" -Wl,--no-whole-archive
+    # Needs to be whole-archive due to how it Abseil registers flags
+    -Wl,--whole-archive absl::log_flags -Wl,--no-whole-archive
     sapi::client
     ${CMAKE_DL_LIBS}
-    -Wl,-E
+  )
+  target_link_options("${_sapi_bin}" PRIVATE
+    LINKER:-E
     ${_sapi_exported_funcs}
   )
 
@@ -141,7 +146,6 @@ function(add_sapi_library)
     set(_sapi_embed_name "${_sapi_NAME}")
   endif()
 
-  set(_sapi_isystem "${_sapi_NAME}.isystem")
   list(APPEND _sapi_generator_args
     "--sapi_name=${_sapi_LIBRARY_NAME}"
     "--sapi_out=${_sapi_gen_header}"
@@ -149,42 +153,55 @@ function(add_sapi_library)
     "--sapi_embed_name=${_sapi_embed_name}"
     "--sapi_functions=${_sapi_funcs}"
     "--sapi_ns=${_sapi_NAMESPACE}"
-    "--sapi_isystem=${_sapi_isystem}"
   )
-  if(SAPI_ENABLE_GENERATOR)
+  if(SAPI_ENABLE_CLANG_TOOL)
+    set(_sapi_isystem_args ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+    list(TRANSFORM _sapi_isystem_args PREPEND --extra-arg-before=-isystem)
+    if(SAPI_CLANG_TOOL_EXECUTABLE)
+      list(APPEND _sapi_generator_command "${SAPI_CLANG_TOOL_EXECUTABLE}")
+    else()
+      list(APPEND _sapi_generator_command sapi_generator_tool)
+    endif()
     list(APPEND _sapi_generator_command
-      sapi_generator_tool
       -p "${CMAKE_CURRENT_BINARY_DIR}"
       ${_sapi_generator_args}
+      ${_sapi_isystem_args}
       ${_sapi_full_inputs}
     )
+    add_custom_command(
+      OUTPUT "${_sapi_gen_header}"
+      COMMAND ${_sapi_generator_command}
+      COMMENT "Generating interface"
+      DEPENDS ${_sapi_INPUTS}
+      VERBATIM
+    )
   else()
+    set(_sapi_isystem "${_sapi_NAME}.isystem")
     list(JOIN _sapi_full_inputs "," _sapi_full_inputs)
     list(APPEND _sapi_generator_command
       "${SAPI_PYTHON3_EXECUTABLE}" -B
-      "${SAPI_SOURCE_DIR}/sandboxed_api/tools/generator2/sapi_generator.py"
+      "${SAPI_SOURCE_DIR}/sandboxed_api/tools/python_generator/sapi_generator.py"
       ${_sapi_generator_args}
+      "--sapi_isystem=${_sapi_isystem}"
       "--sapi_in=${_sapi_full_inputs}"
     )
+    add_custom_command(
+      OUTPUT "${_sapi_gen_header}" "${_sapi_isystem}"
+      COMMAND sh -c
+              "printf '${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES}' | \
+               sed \"s/;/\\n/g\" > \"${_sapi_isystem}\""
+      COMMAND ${_sapi_generator_command}
+      COMMENT "Generating interface"
+      DEPENDS ${_sapi_INPUTS}
+      VERBATIM
+    )
   endif()
-  add_custom_command(
-    OUTPUT "${_sapi_gen_header}" "${_sapi_isystem}"
-    COMMAND sh -c
-            "${CMAKE_CXX_COMPILER} -E -x c++ -v /dev/null 2>&1 | \
-             awk '/> search starts here:/{f=1;next}/^End of search/{f=0}f{print $1}' \
-             > \"${_sapi_isystem}\""
-    COMMAND ${_sapi_generator_command}
-    COMMENT "Generating interface"
-    DEPENDS ${_sapi_INPUTS}
-    VERBATIM
-  )
 
   # Library with the interface
   if(NOT _sapi_SOURCES)
-    set(_sapi_force_cxx_linkage
-      "${CMAKE_CURRENT_BINARY_DIR}/${_sapi_NAME}_force_cxx_linkage.cc")
-    file(WRITE "${_sapi_force_cxx_linkage}" "")
-    list(APPEND _sapi_SOURCES "${_sapi_force_cxx_linkage}")
+    list(APPEND _sapi_SOURCES
+      "${SAPI_BINARY_DIR}/sapi_force_cxx_linkage.cc"
+    )
   endif()
   add_library("${_sapi_NAME}" STATIC
     "${_sapi_gen_header}"

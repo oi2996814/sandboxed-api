@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if((SAPI_ENABLE_EXAMPLES OR SAPI_ENABLE_TESTS) AND NOT CMAKE_CROSSCOMPILING)
+if((SAPI_BUILD_EXAMPLES OR SAPI_BUILD_TESTING) AND NOT CMAKE_CROSSCOMPILING)
   # TODO(cblichmann): These are depended on by sapi::sapi_test
   add_subdirectory(stringop)
   add_subdirectory(sum)
 endif()
 
-if(SAPI_ENABLE_EXAMPLES AND SAPI_DOWNLOAD_ZLIB)
+if(SAPI_BUILD_EXAMPLES AND SAPI_DOWNLOAD_ZLIB)
   add_subdirectory(zlib)
 endif()

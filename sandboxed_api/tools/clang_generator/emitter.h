@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,50 +18,34 @@
 #include <string>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Type.h"
-#include "sandboxed_api/tools/clang_generator/types.h"
+#include "sandboxed_api/tools/clang_generator/emitter_base.h"
 
 namespace sapi {
-namespace internal {
 
-absl::StatusOr<std::string> ReformatGoogleStyle(const std::string& filename,
-                                                const std::string& code);
+// Forward declaration to avoid circular dependencies.
+struct GeneratorOptions;
 
-}  // namespace internal
-
-class GeneratorOptions;
-
-class Emitter {
+// Responsible for emitting the actual textual representation of the generated
+// Sandboxed API header.
+class Emitter : public EmitterBase {
  public:
-  using RenderedTypesMap =
-      absl::flat_hash_map<std::string, std::vector<std::string>>;
-
-  void CollectType(clang::QualType qual);
-  void CollectFunction(clang::FunctionDecl* decl);
+  // Adds a function to the list of functions to be rendered. In addition, it
+  // stores the original and SAPI function information for safe drop-in
+  // generation.
+  absl::Status AddFunction(clang::FunctionDecl* decl) override;
 
   // Outputs a formatted header for a list of functions and their related types.
   absl::StatusOr<std::string> EmitHeader(const GeneratorOptions& options);
 
  protected:
-  // Maps namespace to a list of spellings for types
-  RenderedTypesMap rendered_types_;
-
-  // Functions for sandboxed API, including their bodies
-  std::vector<std::string> functions_;
+  // Rendered function bodies, as a vector to preserve source order. This is
+  // not strictly necessary, but makes the output look less surprising.
+  std::vector<std::string> rendered_functions_ordered_;
 };
-
-// Constructs an include guard name for the given filename. The name is of the
-// same form as the include guards in this project.
-// For example,
-//   sandboxed_api/examples/zlib/zlib-sapi.sapi.h
-// will be mapped to
-//   SANDBOXED_API_EXAMPLES_ZLIB_ZLIB_SAPI_SAPI_H_
-std::string GetIncludeGuard(absl::string_view filename);
 
 }  // namespace sapi
 

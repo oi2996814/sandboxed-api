@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -44,10 +44,9 @@ absl::Status LibPNGMain(const std::string& infile, const std::string& outfile) {
 
   sapi::v::Array<uint8_t> buffer(PNG_IMAGE_SIZE(*image.mutable_data()));
 
-  sapi::v::NullPtr null = sapi::v::NullPtr();
-  SAPI_ASSIGN_OR_RETURN(result,
-                        api.png_image_finish_read(image.PtrBoth(), &null,
-                                                  buffer.PtrBoth(), 0, &null));
+  SAPI_ASSIGN_OR_RETURN(
+      result, api.png_image_finish_read(image.PtrBoth(), nullptr,
+                                        buffer.PtrBoth(), 0, nullptr));
   if (!result) {
     return absl::InternalError(
         absl::StrCat("finish read error: ", image.mutable_data()->message));
@@ -55,7 +54,7 @@ absl::Status LibPNGMain(const std::string& infile, const std::string& outfile) {
 
   SAPI_ASSIGN_OR_RETURN(result, api.png_image_write_to_file(
                                     image.PtrBoth(), outfile_var.PtrBefore(), 0,
-                                    buffer.PtrBoth(), 0, &null));
+                                    buffer.PtrBoth(), 0, nullptr));
   if (!result) {
     return absl::InternalError(
         absl::StrCat("write error: ", image.mutable_data()->message));
@@ -64,7 +63,7 @@ absl::Status LibPNGMain(const std::string& infile, const std::string& outfile) {
   return absl::OkStatus();
 }
 
-int main(int argc, const char** argv) {
+int main(int argc, char* argv[]) {
   if (argc != 3) {
     LOG(ERROR) << "usage: example input-file output-file";
     return EXIT_FAILURE;

@@ -17,9 +17,9 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/memory/memory.h"
@@ -27,14 +27,13 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "clang/Frontend/FrontendAction.h"
-#include "sandboxed_api/util/status_matchers.h"
 
 namespace sapi {
 namespace internal {
 
 absl::Status RunClangTool(
-    const std::vector<std::string> command_line,
-    const absl::flat_hash_map<std::string, std::string> file_contents,
+    const std::vector<std::string>& command_line,
+    const absl::flat_hash_map<std::string, std::string>& file_contents,
     std::unique_ptr<clang::FrontendAction> action);
 
 }  // namespace internal
@@ -56,27 +55,34 @@ class FrontendActionTest : public ::testing::Test {
       absl::string_view input_file);
 
   // Runs the specified frontend action on in-memory source code.
-  void RunFrontendAction(absl::string_view code,
-                         std::unique_ptr<clang::FrontendAction> action) {
+  absl::Status RunFrontendAction(
+      absl::string_view code, std::unique_ptr<clang::FrontendAction> action) {
     std::vector<std::string> command_line =
         GetCommandLineFlagsForTesting(input_file_);
     AddCode(input_file_, code);
-    ASSERT_THAT(
-        internal::RunClangTool(command_line, file_contents_, std::move(action)),
-        IsOk());
+    return internal::RunClangTool(command_line, file_contents_,
+                                  std::move(action));
   }
 
   // Runs the specified frontend action. Provided for compatibility with LLVM <
   // 10. Takes ownership.
-  void RunFrontendAction(absl::string_view code,
-                         clang::FrontendAction* action) {
-    RunFrontendAction(code, absl::WrapUnique(action));
+  absl::Status RunFrontendAction(absl::string_view code,
+                                 clang::FrontendAction* action) {
+    return RunFrontendAction(code, absl::WrapUnique(action));
   }
 
  private:
   std::string input_file_ = "input.cc";
   absl::flat_hash_map<std::string, std::string> file_contents_;
 };
+
+// Flattens a piece of C++ code into one line and removes consecutive runs of
+// whitespace. This makes it easier to compare code snippets for testing.
+// Note: This is not syntax-aware and will replace characters within strings as
+// well.
+std::string Uglify(absl::string_view code);
+
+std::vector<std::string> UglifyAll(const std::vector<std::string>& snippets);
 
 }  // namespace sapi
 

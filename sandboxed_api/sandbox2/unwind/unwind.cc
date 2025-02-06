@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,19 +15,26 @@
 #include "sandboxed_api/sandbox2/unwind/unwind.h"
 
 #include <cxxabi.h>
+#include <sys/ptrace.h>
+#include <sys/types.h>
 
-#include <cstddef>
+#include <cerrno>
 #include <cstdint>
-#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/cleanup/cleanup.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "libunwind-ptrace.h"
+#include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/unwind/ptrace_hook.h"
 #include "sandboxed_api/sandbox2/unwind/unwind.pb.h"
@@ -36,7 +43,6 @@
 #include "sandboxed_api/util/file_helpers.h"
 #include "sandboxed_api/util/raw_logging.h"
 #include "sandboxed_api/util/status_macros.h"
-#include "sandboxed_api/util/strerror.h"
 
 namespace sandbox2 {
 namespace {
@@ -54,43 +60,93 @@ std::string DemangleSymbol(const std::string& maybe_mangled) {
   return maybe_mangled;
 }
 
+absl::StatusOr<uintptr_t> ReadMemory(pid_t pid, uintptr_t addr) {
+  errno = 0;
+  uintptr_t val = ptrace(PTRACE_PEEKDATA, pid, addr, 0);
+  if (errno != 0) {
+    return absl::ErrnoToStatus(errno, "ptrace() failed");
+  }
+  return val;
+}
+
+absl::StatusOr<std::vector<uintptr_t>> UnwindUsingFramePointer(pid_t pid,
+                                                               int max_frames,
+                                                               uintptr_t fp) {
+#if defined(SAPI_PPC64_LE)
+  constexpr int kIPOffset = 2;
+#else
+  constexpr int kIPOffset = 1;
+#endif
+  std::vector<uintptr_t> ips;
+  for (int i = 0; fp != 0 && i < max_frames; ++i) {
+    SAPI_ASSIGN_OR_RETURN(uintptr_t ip,
+                          ReadMemory(pid, fp + kIPOffset * sizeof(void*)));
+    ips.push_back(ip);
+    SAPI_ASSIGN_OR_RETURN(fp, ReadMemory(pid, fp));
+  }
+  return ips;
+}
+
 absl::StatusOr<std::vector<uintptr_t>> RunLibUnwind(pid_t pid, int max_frames) {
-  unw_cursor_t cursor;
   static unw_addr_space_t as =
       unw_create_addr_space(&_UPT_accessors, 0 /* byte order */);
   if (as == nullptr) {
     return absl::InternalError("unw_create_addr_space() failed");
   }
 
-  std::unique_ptr<struct UPT_info, void (*)(void*)> ui(
-      reinterpret_cast<struct UPT_info*>(_UPT_create(pid)), _UPT_destroy);
-  if (ui == nullptr) {
+  void* context = _UPT_create(pid);
+  if (context == nullptr) {
     return absl::InternalError("_UPT_create() failed");
   }
+  absl::Cleanup context_cleanup = [&context] { _UPT_destroy(context); };
 
-  int rc = unw_init_remote(&cursor, as, ui.get());
-  if (rc < 0) {
+  unw_cursor_t cursor;
+  if (int rc = unw_init_remote(&cursor, as, context); rc < 0) {
     // Could be UNW_EINVAL (8), UNW_EUNSPEC (1) or UNW_EBADREG (3).
     return absl::InternalError(
         absl::StrCat("unw_init_remote() failed with error ", rc));
   }
-
   std::vector<uintptr_t> ips;
   for (int i = 0; i < max_frames; ++i) {
     unw_word_t ip;
-    rc = unw_get_reg(&cursor, UNW_REG_IP, &ip);
+    unw_word_t fp = 0;
+    int rc = unw_get_reg(&cursor, UNW_REG_IP, &ip);
     if (rc < 0) {
       // Could be UNW_EUNSPEC or UNW_EBADREG.
       SAPI_RAW_LOG(WARNING, "unw_get_reg() failed with error %d", rc);
       break;
     }
+#if defined(SAPI_ARM64)
+    constexpr int kFpReg = UNW_AARCH64_X29;
+#elif defined(SAPI_ARM)
+    constexpr int kFpReg = UNW_ARM_R11;
+#elif defined(SAPI_X86_64)
+    constexpr int kFpReg = UNW_X86_64_RBP;
+#elif defined(SAPI_PPC64_LE)
+    constexpr int kFpReg = UNW_PPC64_R1;
+#endif
+    rc = unw_get_reg(&cursor, kFpReg, &fp);
+    if (rc < 0) {
+      SAPI_RAW_LOG(WARNING, "unw_get_reg() failed with error %d", rc);
+    }
     ips.push_back(ip);
     rc = unw_step(&cursor);
-    // Non-error condition: UNW_ESUCCESS (0).
-    if (rc < 0) {
-      // If anything but UNW_ESTOPUNWIND (-5), there has been an error.
-      // However since we can't do anything about it and it appears that
-      // this happens every time we don't log this.
+    if (rc <= 0) {
+      if (rc < 0) {
+        SAPI_RAW_LOG(WARNING, "unw_step() failed with error %d", rc);
+      }
+      if (fp != 0) {
+        SAPI_RAW_LOG(INFO, "Falling back to frame based unwinding at FP: %lx",
+                     fp);
+        absl::StatusOr<std::vector<uintptr_t>> fp_ips =
+            UnwindUsingFramePointer(pid, max_frames - ips.size(), fp);
+        if (!fp_ips.ok()) {
+          SAPI_RAW_LOG(WARNING, "FP based unwinding failed: %s",
+                       std::string(fp_ips.status().message()).c_str());
+          break;
+        }
+        ips.insert(ips.end(), fp_ips->begin(), fp_ips->end());
+      }
       break;
     }
   }
@@ -175,9 +231,24 @@ absl::StatusOr<SymbolMap> LoadSymbolsMap(pid_t pid) {
     }
 
     for (const ElfFile::Symbol& symbol : elf->symbols()) {
+      // Skip Mapping Symbols on ARM
+      // ARM documentation for Mapping Symbols:
+      // https://developer.arm.com/documentation/dui0803/a/Accessing-and-managing-symbols-with-armlink/About-mapping-symbols
+      if constexpr (sapi::host_cpu::IsArm64() || sapi::host_cpu::IsArm()) {
+        if (absl::StartsWith(symbol.name, "$x") ||
+            absl::StartsWith(symbol.name, "$d") ||
+            absl::StartsWith(symbol.name, "$t") ||
+            absl::StartsWith(symbol.name, "$a") ||
+            absl::StartsWith(symbol.name, "$v")) {
+          continue;
+        }
+      }
+
       if (elf->position_independent()) {
-        if (symbol.address < entry.end - entry.start) {
-          addr_to_symbol[symbol.address + entry.start] = symbol.name;
+        if (symbol.address >= entry.pgoff &&
+            symbol.address - entry.pgoff < entry.end - entry.start) {
+          addr_to_symbol[symbol.address + entry.start - entry.pgoff] =
+              symbol.name;
         }
       } else {
         if (symbol.address >= entry.start && symbol.address < entry.end) {
@@ -194,17 +265,15 @@ bool RunLibUnwindAndSymbolizer(Comms* comms) {
   if (!comms->RecvProtoBuf(&setup)) {
     return false;
   }
-
-  EnablePtraceEmulationWithUserRegs(setup.regs());
-
-  absl::StatusOr<std::vector<uintptr_t>> ips =
-      RunLibUnwind(setup.pid(), setup.default_max_frames());
-  absl::StatusOr<std::vector<std::string>> stack_trace;
-  if (ips.ok()) {
-    stack_trace = SymbolizeStacktrace(setup.pid(), *ips);
-  } else {
-    stack_trace = ips.status();
+  int mem_fd;
+  if (!comms->RecvFD(&mem_fd)) {
+    return false;
   }
+
+  EnablePtraceEmulationWithUserRegs(setup.pid(), setup.regs(), mem_fd);
+
+  absl::StatusOr<std::vector<std::string>> stack_trace =
+      RunLibUnwindAndSymbolizer(setup.pid(), setup.default_max_frames());
 
   if (!comms->SendStatus(stack_trace.status())) {
     return false;
@@ -216,7 +285,6 @@ bool RunLibUnwindAndSymbolizer(Comms* comms) {
 
   UnwindResult msg;
   *msg.mutable_stacktrace() = {stack_trace->begin(), stack_trace->end()};
-  *msg.mutable_ip() = {ips->begin(), ips->end()};
   return comms->SendProtoBuf(msg);
 }
 

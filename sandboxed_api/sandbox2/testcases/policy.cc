@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "absl/base/attributes.h"
 #include "sandboxed_api/config.h"
 
 #ifdef SAPI_X86_64
@@ -58,11 +59,29 @@ void TestAMD64SyscallMismatchFs() {
 }
 #endif
 
-void TestPtrace() {
+void TestPtraceDenied() {
   ptrace(PTRACE_SEIZE, getppid(), 0, 0);
 
   printf("Syscall violation should have been discovered by now\n");
   exit(EXIT_FAILURE);
+}
+
+void TestPtraceBlocked() {
+  int result = ptrace(PTRACE_SEIZE, getppid(), 0, 0);
+
+  if (result != -1 || errno != EPERM) {
+    printf("System call should have been blocked\n");
+    exit(EXIT_FAILURE);
+  }
+}
+
+void TestBpfBlocked() {
+  int result = syscall(__NR_bpf, 0, nullptr, 0);
+
+  if (result != -1 || errno != EPERM) {
+    printf("System call should have been blocked\n");
+    exit(EXIT_FAILURE);
+  }
 }
 
 void TestCloneUntraced() {
@@ -80,18 +99,9 @@ void TestBpf() {
   exit(EXIT_FAILURE);
 }
 
-void TestBpfError() {
-  exit(syscall(__NR_bpf, 0, nullptr, 0) == -1 ? errno : 0);
-}
+void TestIsatty() { isatty(0); }
 
-void TestIsatty() {
-  isatty(0);
-
-  printf("Syscall violation should have been discovered by now\n");
-  exit(EXIT_FAILURE);
-}
-
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
   // Disable buffering.
   setbuf(stdin, nullptr);
   setbuf(stdout, nullptr);
@@ -113,7 +123,7 @@ int main(int argc, char** argv) {
       break;
 #endif
     case 3:
-      TestPtrace();
+      TestPtraceDenied();
       break;
     case 4:
       TestCloneUntraced();
@@ -125,7 +135,10 @@ int main(int argc, char** argv) {
       TestIsatty();
       break;
     case 7:
-      TestBpfError();
+      TestPtraceBlocked();
+      ABSL_FALLTHROUGH_INTENDED;
+    case 8:
+      TestBpfBlocked();
       break;
     default:
       printf("Unknown test: %d\n", testno);

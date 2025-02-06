@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,6 +20,7 @@ add_library(sandbox2_ptrace_hook STATIC
 add_library(sandbox2::ptrace_hook ALIAS sandbox2_ptrace_hook)
 target_link_libraries(sandbox2_ptrace_hook
   PRIVATE sapi::base
+          sandbox2::syscall_trap
   PUBLIC absl::strings
 )
 
@@ -30,19 +31,21 @@ add_library(sandbox2_unwind STATIC
 )
 add_library(sandbox2::unwind ALIAS sandbox2_unwind)
 target_link_libraries(sandbox2_unwind PRIVATE
+  absl::cleanup
+  absl::status
   absl::statusor
   absl::strings
   sandbox2::comms
   sandbox2::maps_parser
   sandbox2::minielf
   sandbox2::ptrace_hook
-  sapi::strerror
   sandbox2::unwind_proto
   sapi::base
+  sapi::config
   sapi::file_helpers
   sapi::raw_logging
   sapi::status
-  unwind::unwind_ptrace_wrapped
+  unwind::unwind_ptrace
 )
 
 # sandboxed_api/sandbox2/unwind:unwind_proto

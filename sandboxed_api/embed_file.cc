@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,20 +16,43 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
 #include <unistd.h>
 
-#include <glog/logging.h>
-#include "absl/status/status.h"
+#include <string>
+
+#include "sandboxed_api/file_toc.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "sandboxed_api/sandbox2/util.h"
 #include "sandboxed_api/util/fileops.h"
 #include "sandboxed_api/util/raw_logging.h"
-#include "sandboxed_api/util/strerror.h"
 
 namespace sapi {
+
+namespace {
+
+using ::sapi::file_util::fileops::FDCloser;
+
+#ifndef F_ADD_SEALS
+#define F_ADD_SEALS 1033
+#define F_SEAL_SEAL 0x0001
+#define F_SEAL_SHRINK 0x0002
+#define F_SEAL_GROW 0x0004
+#define F_SEAL_WRITE 0x0008
+#endif
+
+bool SealFile(int fd) {
+  constexpr int kMaxRetries = 10;
+  for (int i = 0; i < kMaxRetries; ++i) {
+    if (fcntl(fd, F_ADD_SEALS,
+              F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
 
 EmbedFile* EmbedFile::instance() {
   static auto* embed_file_instance = new EmbedFile();
@@ -59,15 +82,22 @@ int EmbedFile::CreateFdForFileToc(const FileToc* toc) {
     return -1;
   }
 
-  // Ideally, we'd seal the file here using fcntl(). However, in rare cases,
-  // adding the file seals F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW |
-  // F_SEAL_WRITE results in EBUSY errors.
-  // This is likely because of an interaction of SEAL_WRITE with pending writes
-  // to the mapped memory region (see memfd_wait_for_pins() in Linux'
-  // mm/memfd.c). Since fsync() is a no-op on memfds, it doesn't help to
-  // ameliorate the problem.
+  // Seal the file
+  if (!SealFile(embed_fd.get())) {
+    SAPI_RAW_PLOG(ERROR, "Couldn't apply file seals to FD=%d", embed_fd.get());
+    return -1;
+  }
 
-  return embed_fd.Release();
+  // Instead of working around problems with CRIU we reopen the file as
+  // read-only.
+  fd = open(absl::StrCat("/proc/", getpid(), "/fd/", embed_fd.get()).c_str(),
+            O_RDONLY | O_CLOEXEC);
+  if (fd == -1) {
+    SAPI_RAW_PLOG(ERROR, "Couldn't reopen '%d' read-only through /proc",
+                  embed_fd.get());
+    return -1;
+  }
+  return fd;
 }
 
 int EmbedFile::GetFdForFileToc(const FileToc* toc) {
@@ -80,8 +110,8 @@ int EmbedFile::GetFdForFileToc(const FileToc* toc) {
     SAPI_RAW_VLOG(3,
                   "Returning pre-existing embed file entry for '%s', fd: %d "
                   "(orig name: '%s')",
-                  toc->name, entry->second, entry->first->name);
-    return entry->second;
+                  toc->name, entry->second.get(), entry->first->name);
+    return entry->second.get();
   }
 
   int embed_fd = CreateFdForFileToc(toc);
@@ -93,7 +123,7 @@ int EmbedFile::GetFdForFileToc(const FileToc* toc) {
   SAPI_RAW_VLOG(1, "Created new embed file entry for '%s' with fd: %d",
                 toc->name, embed_fd);
 
-  file_tocs_[toc] = embed_fd;
+  file_tocs_[toc] = FDCloser(embed_fd);
   return embed_fd;
 }
 

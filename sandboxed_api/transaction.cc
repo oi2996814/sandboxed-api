@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,6 +14,13 @@
 
 #include "sandboxed_api/transaction.h"
 
+#include <functional>
+#include <memory>
+
+#include "absl/cleanup/cleanup.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/time/time.h"
 #include "sandboxed_api/util/status_macros.h"
 
 namespace sapi {
@@ -27,14 +34,10 @@ absl::Status TransactionBase::RunTransactionFunctionInSandbox(
 
   // Set the wall-time limit for this transaction run, and clean it up
   // afterwards, no matter what the result.
-  SAPI_RETURN_IF_ERROR(
-      sandbox_->SetWallTimeLimit(absl::Seconds(GetTimeLimit())));
-  struct TimeCleanup {
-    ~TimeCleanup() {
-      capture->sandbox_->SetWallTimeLimit(absl::ZeroDuration()).IgnoreError();
-    }
-    TransactionBase* capture;
-  } sandbox_cleanup = {this};
+  SAPI_RETURN_IF_ERROR(sandbox_->SetWallTimeLimit(time_limit_));
+  absl::Cleanup time_cleanup = [this] {
+    sandbox_->SetWallTimeLimit(absl::ZeroDuration()).IgnoreError();
+  };
 
   if (!initialized_) {
     SAPI_RETURN_IF_ERROR(Init());

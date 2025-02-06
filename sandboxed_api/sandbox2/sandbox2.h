@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,18 +20,18 @@
 
 #include <ctime>
 #include <memory>
-#include <thread>  // NOLINT(build/c++11)
 #include <utility>
 
-#include <glog/logging.h>
+#include "absl/base/attributes.h"
 #include "absl/base/macros.h"
-#include "absl/memory/memory.h"
+#include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/executor.h"
 #include "sandboxed_api/sandbox2/ipc.h"
-#include "sandboxed_api/sandbox2/monitor.h"
+#include "sandboxed_api/sandbox2/monitor_base.h"
 #include "sandboxed_api/sandbox2/notify.h"
 #include "sandboxed_api/sandbox2/policy.h"
 #include "sandboxed_api/sandbox2/result.h"
@@ -50,12 +50,7 @@ class Sandbox2 final {
         notify_(std::move(notify)) {
     CHECK(executor_ != nullptr);
     CHECK(policy_ != nullptr);
-    if (notify_ == nullptr) {
-      notify_ = absl::make_unique<Notify>();
-    }
   }
-
-  ~Sandbox2();
 
   Sandbox2(const Sandbox2&) = delete;
   Sandbox2& operator=(const Sandbox2&) = delete;
@@ -90,16 +85,6 @@ class Sandbox2 final {
   // Returns whether sandboxing task has ended.
   bool IsTerminated() const;
 
-  // Sets a wall time limit on a running sandboxee, 0 to disarm.
-  // Limit is a timeout duration (e.g. 10 secs) not a deadline (e.g. 12:00).
-  // This can be useful in a persistent sandbox scenario, to impose a deadline
-  // for responses after each request and reset the deadline in between.
-  // Sandboxed API can be used to implement persistent sandboxes.
-  ABSL_DEPRECATED("Use set_walltime_limit() instead")
-  void SetWallTimeLimit(time_t limit) const {
-    this->set_walltime_limit(absl::Seconds(limit));
-  }
-
   // Sets a wall time limit on a running sandboxee, absl::ZeroDuration() to
   // disarm. This can be useful in a persistent sandbox scenario, to impose a
   // deadline for responses after each request and reset the deadline in
@@ -107,21 +92,20 @@ class Sandbox2 final {
   void set_walltime_limit(absl::Duration limit) const;
 
   // Returns the process id inside the executor.
-  ABSL_DEPRECATED("Use pid() instead")
-  pid_t GetPid() { return this->pid(); }
-
-  pid_t pid() const { return monitor_ != nullptr ? monitor_->pid_ : -1; }
+  pid_t pid() const { return monitor_ != nullptr ? monitor_->pid() : -1; }
 
   // Gets the comms inside the executor.
   Comms* comms() {
     return executor_ != nullptr ? executor_->ipc()->comms() : nullptr;
   }
 
+  absl::Status EnableUnotifyMonitor();
+
  private:
   // Launches the Monitor.
   void Launch();
-  // Notifies monitor about a state change
-  void NotifyMonitor();
+
+  std::unique_ptr<MonitorBase> CreateMonitor();
 
   // Executor set by user - owned by Sandbox2.
   std::unique_ptr<Executor> executor_;
@@ -133,13 +117,9 @@ class Sandbox2 final {
   std::unique_ptr<Notify> notify_;
 
   // Monitor object - owned by Sandbox2.
-  std::unique_ptr<Monitor> monitor_;
+  std::unique_ptr<MonitorBase> monitor_;
 
-  // Monitor thread object - owned by Sandbox2.
-  std::unique_ptr<std::thread> monitor_thread_;
-
-  // Synchronizes monitor thread deletion and notifying the monitor.
-  absl::Mutex monitor_notify_mutex_;
+  bool use_unotify_monitor_ = false;
 };
 
 }  // namespace sandbox2

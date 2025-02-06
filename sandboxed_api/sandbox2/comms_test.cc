@@ -1,10 +1,9 @@
-// Copyright 2019 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,92 +17,65 @@
 
 #include <fcntl.h>
 #include <sys/socket.h>
-#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-#include <cstdio>
+#include <cstdint>
 #include <cstring>
-#include <ctime>
-#include <thread>  // NOLINT(build/c++11)
-#include <utility>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
 
-#include <glog/logging.h>
-#include "google/protobuf/text_format.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "sandboxed_api/sandbox2/comms_test.pb.h"
 #include "sandboxed_api/util/status_matchers.h"
+#include "sandboxed_api/util/thread.h"
+
+namespace sandbox2 {
+namespace {
 
 using ::sapi::IsOk;
 using ::sapi::StatusIs;
 using ::testing::Eq;
+using ::testing::IsEmpty;
 using ::testing::IsFalse;
 using ::testing::IsTrue;
 
-namespace sandbox2 {
-
 using CommunicationHandler = std::function<void(Comms* comms)>;
 
-class CommsTest : public ::testing::Test {
-  void SetUp() override {
-    // Comms channel using an abstract socket namespace (initialized with socket
-    // name).
-    timespec ts1, ts2;
-    CHECK_NE(clock_gettime(CLOCK_REALTIME, &ts1), -1);
-    CHECK_NE(clock_gettime(CLOCK_REALTIME, &ts2), -1);
-    snprintf(
-        sockname_, sizeof(sockname_), "comms-test-%u-%u-%u-%u",
-        static_cast<uint32_t>(ts1.tv_sec), static_cast<uint32_t>(ts1.tv_nsec),
-        static_cast<uint32_t>(ts2.tv_sec), static_cast<uint32_t>(ts2.tv_nsec));
-    LOG(INFO) << "Sockname: " << sockname_;
-
-    // Comms channel using a descriptor (initialized with a file descriptor).
-    int sv[2];
-    CHECK_NE(socketpair(AF_UNIX, SOCK_STREAM, 0, sv), -1);
-    fd_server_ = sv[0];
-    fd_client_ = sv[1];
-    LOG(INFO) << "FD(client): " << fd_client_ << ", FD(server): " << fd_server_;
-  }
-  void TearDown() override {
-    close(fd_server_);
-    close(fd_client_);
-  }
-
- protected:
-  char sockname_[256];
-  int fd_client_;
-  int fd_server_;
-};
-
-constexpr char kProtoStr[] = "value: \"ABCD\"\n";
-static const absl::string_view NullTestString() {
+constexpr char kProtoStr[] = "ABCD";
+static absl::string_view NullTestString() {
   static constexpr char kHelperStr[] = "test\0\n\r\t\x01\x02";
   return absl::string_view(kHelperStr, sizeof(kHelperStr) - 1);
 }
 
 // Helper function that handles the communication between the two handler
 // functions.
-void HandleCommunication(const std::string& socketname,
-                         const CommunicationHandler& a,
+void HandleCommunication(const CommunicationHandler& a,
                          const CommunicationHandler& b) {
-  Comms comms(socketname);
-  comms.Listen();
+  int sv[2];
+  CHECK_NE(socketpair(AF_UNIX, SOCK_STREAM, 0, sv), -1);
+  Comms comms(sv[0]);
 
   // Start handler a.
-  std::thread remote([&socketname, &a]() {
-    Comms my_comms(socketname);
-    CHECK(my_comms.Connect());
+  sapi::Thread remote([sv, &a]() {
+    Comms my_comms(sv[1]);
     a(&my_comms);
   });
 
   // Accept connection and run handler b.
-  CHECK(comms.Accept());
   b(&comms);
-  remote.join();
+  remote.Join();
 }
 
-TEST_F(CommsTest, TestSendRecv8) {
+TEST(CommsTest, TestSendRecv8) {
   auto a = [](Comms* comms) {
     // Send Uint8.
     ASSERT_THAT(comms->SendUint8(192), IsTrue());
@@ -122,10 +94,10 @@ TEST_F(CommsTest, TestSendRecv8) {
     // Send Int8.
     ASSERT_THAT(comms->SendInt8(-7), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecv16) {
+TEST(CommsTest, TestSendRecv16) {
   auto a = [](Comms* comms) {
     // Send Uint16.
     ASSERT_THAT(comms->SendUint16(40001), IsTrue());
@@ -144,10 +116,10 @@ TEST_F(CommsTest, TestSendRecv16) {
     // Send Int16.
     ASSERT_THAT(comms->SendInt16(-22050), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecv32) {
+TEST(CommsTest, TestSendRecv32) {
   auto a = [](Comms* comms) {
     // SendUint32.
     ASSERT_THAT(comms->SendUint32(3221225472UL), IsTrue());
@@ -166,10 +138,10 @@ TEST_F(CommsTest, TestSendRecv32) {
     // Send Int32.
     ASSERT_THAT(comms->SendInt32(-1073741824), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecv64) {
+TEST(CommsTest, TestSendRecv64) {
   auto a = [](Comms* comms) {
     // SendUint64.
     ASSERT_THAT(comms->SendUint64(1099511627776ULL), IsTrue());
@@ -188,10 +160,10 @@ TEST_F(CommsTest, TestSendRecv64) {
     // Send Int64.
     ASSERT_THAT(comms->SendInt64(-1099511627776LL), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestTypeMismatch) {
+TEST(CommsTest, TestTypeMismatch) {
   auto a = [](Comms* comms) {
     uint8_t tmpu8;
     // Receive Int8 (but Uint8 expected).
@@ -201,10 +173,10 @@ TEST_F(CommsTest, TestTypeMismatch) {
     // Send Int8 (but Uint8 expected).
     ASSERT_THAT(comms->SendInt8(-93), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvString) {
+TEST(CommsTest, TestSendRecvString) {
   auto a = [](Comms* comms) {
     std::string tmps;
     ASSERT_THAT(comms->RecvString(&tmps), IsTrue());
@@ -214,10 +186,10 @@ TEST_F(CommsTest, TestSendRecvString) {
   auto b = [](Comms* comms) {
     ASSERT_THAT(comms->SendString(std::string(NullTestString())), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvArray) {
+TEST(CommsTest, TestSendRecvArray) {
   auto a = [](Comms* comms) {
     // Receive 1M bytes.
     std::vector<uint8_t> buffer;
@@ -226,29 +198,39 @@ TEST_F(CommsTest, TestSendRecvArray) {
   };
   auto b = [](Comms* comms) {
     // Send 1M bytes.
-    std::vector<uint8_t> buffer(1024 * 1024);
-    memset(buffer.data(), 0, buffer.size());
+    std::vector<uint8_t> buffer(1024 * 1024, 0);
     ASSERT_THAT(comms->SendBytes(buffer), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvFD) {
+TEST(CommsTest, TestSendRecvEmptyArray) {
+  auto a = [](Comms* comms) {
+    std::vector<uint8_t> buffer;
+    ASSERT_THAT(comms->RecvBytes(&buffer), IsTrue());
+    EXPECT_THAT(buffer, IsEmpty());
+  };
+  auto b = [](Comms* comms) { ASSERT_THAT(comms->SendBytes({}), IsTrue()); };
+  HandleCommunication(a, b);
+}
+
+TEST(CommsTest, TestSendRecvFD) {
   auto a = [](Comms* comms) {
     // Receive FD and test it.
     int fd = -1;
     ASSERT_THAT(comms->RecvFD(&fd), IsTrue());
     EXPECT_GE(fd, 0);
     EXPECT_NE(fcntl(fd, F_GETFD), -1);
+    close(fd);
   };
   auto b = [](Comms* comms) {
     // Send our STDERR to the thread.
     ASSERT_THAT(comms->SendFD(STDERR_FILENO), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvEmptyTLV) {
+TEST(CommsTest, TestSendRecvEmptyTLV) {
   auto a = [](Comms* comms) {
     // Receive TLV without a value.
     uint32_t tag;
@@ -261,10 +243,10 @@ TEST_F(CommsTest, TestSendRecvEmptyTLV) {
     // Send TLV without a value.
     ASSERT_THAT(comms->SendTLV(0x00DEADBE, 0, nullptr), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvEmptyTLV2) {
+TEST(CommsTest, TestSendRecvEmptyTLV2) {
   auto a = [](Comms* comms) {
     // Receive TLV without a value.
     uint32_t tag;
@@ -277,30 +259,28 @@ TEST_F(CommsTest, TestSendRecvEmptyTLV2) {
     // Send TLV without a value.
     ASSERT_THAT(comms->SendTLV(0x00DEADBE, 0, nullptr), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvProto) {
+TEST(CommsTest, TestSendRecvProto) {
   auto a = [](Comms* comms) {
     // Receive a ProtoBuf.
     std::unique_ptr<CommsTestMsg> comms_msg(new CommsTestMsg());
     ASSERT_THAT(comms->RecvProtoBuf(comms_msg.get()), IsTrue());
-    std::string tmp_str;
-    ASSERT_THAT(google::protobuf::TextFormat::PrintToString(*comms_msg, &tmp_str),
-                IsTrue());
-    EXPECT_THAT(tmp_str, Eq(kProtoStr));
+    ASSERT_THAT(comms_msg->value_size(), Eq(1));
+    EXPECT_THAT(comms_msg->value(0), Eq(kProtoStr));
   };
   auto b = [](Comms* comms) {
     // Send a ProtoBuf.
     std::unique_ptr<CommsTestMsg> comms_msg(new CommsTestMsg());
-    ASSERT_THAT(google::protobuf::TextFormat::ParseFromString(kProtoStr, comms_msg.get()),
-                IsTrue());
+    comms_msg->add_value(kProtoStr);
+    ASSERT_THAT(comms_msg->value_size(), Eq(1));
     ASSERT_THAT(comms->SendProtoBuf(*comms_msg), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvStatusOK) {
+TEST(CommsTest, TestSendRecvStatusOK) {
   auto a = [](Comms* comms) {
     // Receive a good status.
     absl::Status status;
@@ -311,10 +291,10 @@ TEST_F(CommsTest, TestSendRecvStatusOK) {
     // Send a good status.
     ASSERT_THAT(comms->SendStatus(absl::OkStatus()), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvStatusFailing) {
+TEST(CommsTest, TestSendRecvStatusFailing) {
   auto a = [](Comms* comms) {
     // Receive a failing status.
     absl::Status status;
@@ -328,10 +308,10 @@ TEST_F(CommsTest, TestSendRecvStatusFailing) {
                     absl::Status{absl::StatusCode::kInternal, "something odd"}),
                 IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestUsesDistinctBuffers) {
+TEST(CommsTest, TestUsesDistinctBuffers) {
   auto a = [](Comms* comms) {
     // Receive 1M bytes.
     std::vector<uint8_t> buffer1, buffer2;
@@ -354,10 +334,10 @@ TEST_F(CommsTest, TestUsesDistinctBuffers) {
     ASSERT_THAT(comms->SendBytes(buf.data(), buf.size()), IsTrue());
     ASSERT_THAT(comms->SendBytes(buf.data(), buf.size()), IsTrue());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvCredentials) {
+TEST(CommsTest, TestSendRecvCredentials) {
   auto a = [](Comms* comms) {
     // Check credentials.
     pid_t pid;
@@ -371,10 +351,10 @@ TEST_F(CommsTest, TestSendRecvCredentials) {
   auto b = [](Comms* comms) {
     // Nothing to do here.
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendTooMuchData) {
+TEST(CommsTest, TestSendTooMuchData) {
   auto a = [](Comms* comms) {
     // Nothing to do here.
   };
@@ -383,10 +363,10 @@ TEST_F(CommsTest, TestSendTooMuchData) {
     ASSERT_THAT(comms->SendBytes(nullptr, comms->GetMaxMsgSize() + 1),
                 IsFalse());
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-TEST_F(CommsTest, TestSendRecvBytes) {
+TEST(CommsTest, TestSendRecvBytes) {
   auto a = [](Comms* comms) {
     std::vector<uint8_t> buffer;
     ASSERT_THAT(comms->RecvBytes(&buffer), IsTrue());
@@ -400,107 +380,92 @@ TEST_F(CommsTest, TestSendRecvBytes) {
     ASSERT_THAT(comms->RecvBytes(&response), IsTrue());
     EXPECT_THAT(request, Eq(response));
   };
-  HandleCommunication(sockname_, a, b);
+  HandleCommunication(a, b);
 }
 
-class SenderThread {
- public:
-  SenderThread(Comms* comms, size_t rounds) : comms_(comms), rounds_(rounds) {}
-  void operator()() {
-    for (size_t i = 0; i < rounds_; i++) {
-      ASSERT_THAT(
-          comms_->SendBytes(reinterpret_cast<const uint8_t*>("Test"), 4),
-          IsTrue());
-    }
-  }
+TEST(CommsTest, SendRecvFailsAfterTerminate) {
+  auto a = [](Comms* comms) {
+    comms->Terminate();
+    ASSERT_THAT(comms->IsTerminated(), IsTrue());
+    EXPECT_THAT(comms->SendInt8(0), IsFalse());
+    EXPECT_THAT(comms->SendFD(STDERR_FILENO), IsFalse());
+    int8_t tmp;
+    EXPECT_THAT(comms->RecvInt8(&tmp), IsFalse());
+    std::string s;
+    EXPECT_THAT(comms->RecvString(&s), IsFalse());
+    std::vector<uint8_t> b;
+    EXPECT_THAT(comms->RecvBytes(&b), IsFalse());
+    int fd;
+    EXPECT_THAT(comms->RecvFD(&fd), IsFalse());
+    CommsTestMsg msg;
+    EXPECT_THAT(comms->RecvProtoBuf(&msg), IsFalse());
+  };
+  auto b = [](Comms* comms) {};
+  HandleCommunication(a, b);
+}
 
- private:
-  Comms* comms_;
-  size_t rounds_;
-};
+TEST(CommsTest, RecvIntFailsOnTagMismatch) {
+  auto a = [](Comms* comms) {
+    int8_t tmp;
+    EXPECT_THAT(comms->RecvInt8(&tmp), IsFalse());
+  };
+  auto b = [](Comms* comms) { ASSERT_THAT(comms->SendUint8(0), IsTrue()); };
+  HandleCommunication(a, b);
+}
 
-class ReceiverThread {
- public:
-  ReceiverThread(Comms* comms, size_t rounds)
-      : comms_(comms), rounds_(rounds) {}
-  void operator()() {
-    for (size_t i = 0; i < rounds_; i++) {
-      std::vector<uint8_t> buffer;
-      EXPECT_THAT(comms_->RecvBytes(&buffer), IsTrue());
-      EXPECT_THAT(buffer.size(), Eq(4));
-    }
-  }
+TEST(CommsTest, RecvStringBytesFailsOnTagMismatch) {
+  auto a = [](Comms* comms) {
+    std::string s;
+    EXPECT_THAT(comms->RecvString(&s), IsFalse());
+    EXPECT_THAT(s, IsEmpty());
+    ASSERT_THAT(comms->SendString("hello"), IsTrue());
+  };
+  auto b = [](Comms* comms) {
+    ASSERT_THAT(comms->SendBytes({1, 0}), IsTrue());
+    std::vector<uint8_t> b;
+    EXPECT_THAT(comms->RecvBytes(&b), IsFalse());
+    EXPECT_THAT(b, IsEmpty());
+  };
+  HandleCommunication(a, b);
+}
 
- private:
-  Comms* comms_;
-  size_t rounds_;
-};
+TEST(CommsTest, RecvFDFailsOnTagMismatch) {
+  auto a = [](Comms* comms) {
+    int fd;
+    EXPECT_THAT(comms->RecvFD(&fd), IsFalse());
+  };
+  auto b = [](Comms* comms) { ASSERT_THAT(comms->SendBytes({}), IsTrue()); };
+  HandleCommunication(a, b);
+}
 
-TEST_F(CommsTest, TestMultipleThreads) {
-  // The comms object should be thread safe, this testcase covers this.
-  constexpr size_t kNumThreads = 20;
-  constexpr size_t kNumRoundsPerThread = 50;
-  constexpr size_t kNumRounds = kNumThreads * kNumRoundsPerThread;
-  Comms c(sockname_);
-  c.Listen();
+TEST(CommsTest, RecvProtoBufFailsOnTagMismatch) {
+  auto a = [](Comms* comms) {
+    CommsTestMsg msg;
+    EXPECT_THAT(comms->RecvProtoBuf(&msg), IsFalse());
+  };
+  auto b = [](Comms* comms) {
+    ASSERT_THAT(comms->SendString("hello"), IsTrue());
+  };
+  HandleCommunication(a, b);
+}
 
-  // Start the client thread.
-  std::string socketname = sockname_;
-  std::thread ct([&socketname]() {
-    Comms comms(socketname);
-    CHECK(comms.Connect());
-    std::vector<uint8_t> buffer;
-
-    // Receive N_ROUND times. We keep the local buffer and send it back
-    // later to increase our A/MSAN coverage.
-    for (size_t i = 0; i < kNumRounds; i++) {
-      ASSERT_THAT(comms.RecvBytes(&buffer), IsTrue());
-    }
-
-    for (size_t i = 0; i < kNumRounds; i++) {
-      ASSERT_THAT(comms.SendBytes(buffer), IsTrue());
-    }
+TEST(ListeningCommsTest, AbstractSocket) {
+  static constexpr absl::string_view kSocketName = "s2_test_comms";
+  SAPI_ASSERT_OK_AND_ASSIGN(
+      ListeningComms listening_comms,
+      ListeningComms::Create(kSocketName, /*abstract_uds=*/true));
+  sapi::Thread remote([]() {
+    SAPI_ASSERT_OK_AND_ASSIGN(
+        Comms comms,
+        Comms::Connect(std::string(kSocketName), /*abstract_uds=*/true));
+    comms.SendBool(true);
   });
-
-  // Accept connection.
-  ASSERT_THAT(c.Accept(), IsTrue());
-
-  // Start sender threads.
-  {
-    std::thread sender_threads[kNumThreads];
-    for (size_t i = 0; i < kNumThreads; i++) {
-      sender_threads[i] = std::thread(SenderThread(&c, kNumRoundsPerThread));
-    }
-
-    // Join threads.
-    for (size_t i = 0; i < kNumThreads; i++) {
-      sender_threads[i].join();
-    }
-  }
-
-  // Start receiver threads.
-  {
-    std::thread receiver_threads[kNumThreads];
-    for (size_t i = 0; i < kNumThreads; i++) {
-      receiver_threads[i] =
-          std::thread(ReceiverThread(&c, kNumRoundsPerThread));
-    }
-
-    // Join threads.
-    for (size_t i = 0; i < kNumThreads; i++) {
-      receiver_threads[i].join();
-    }
-  }
-
-  ct.join();
+  SAPI_ASSERT_OK_AND_ASSIGN(Comms comms, listening_comms.Accept());
+  bool b;
+  ASSERT_THAT(comms.RecvBool(&b), IsTrue());
+  EXPECT_THAT(b, Eq(true));
+  remote.Join();
 }
 
-// We cannot test this in the Client or Server tests, as the endpoint needs to
-// be unconnected.
-TEST_F(CommsTest, TestMsgSize) {
-  // There will be no actual connection to this socket.
-  const std::string socket_name = "sandbox2_comms_msg_size_test";
-  Comms c(socket_name);
-}
-
+}  // namespace
 }  // namespace sandbox2

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,16 +42,14 @@ class GdalSapiSandbox : public GdalSandbox {
         .AllowWrite()
         .AllowExit()
         .AllowOpen()
-        .AllowSyscalls({
-            __NR_futex,
-            __NR_getdents64,  // DriverRegisterAll()
-            __NR_lseek,       // GDALCreate()
-            __NR_getpid,      // GDALCreate()
-            __NR_sysinfo,     // VSI_TIFFOpen_common()
-            __NR_prlimit64,   // CPLGetUsablePhysicalRAM()
-            __NR_ftruncate,   // GTiffDataset::FillEmptyTiles()
-            __NR_unlink,      // GDALDriver::Delete()
-        })
+        .AllowSyscall(__NR_futex)
+        .AllowSyscall(__NR_getdents64)  // DriverRegisterAll()
+        .AllowSyscall(__NR_lseek)       // GDALCreate()
+        .AllowSyscall(__NR_getpid)      // GDALCreate()
+        .AllowSyscall(__NR_sysinfo)     // VSI_TIFFOpen_common()
+        .AllowSyscall(__NR_prlimit64)   // CPLGetUsablePhysicalRAM()
+        .AllowSyscall(__NR_ftruncate)   // GTiffDataset::FillEmptyTiles()
+        .AllowUnlink()                  // GDALDriver::Delete()
         .AddFile(proj_db_path_)  // proj.db is required for some projections
         .AddDirectory(out_directory_path_, /*is_ro=*/false)
         .BuildOrDie();

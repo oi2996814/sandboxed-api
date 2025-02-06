@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,6 +23,7 @@
 #include <tuple>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
 #include "sandboxed_api/sandbox2/comms.h"
 
@@ -42,9 +43,16 @@ class IPC final {
 
   // Marks local_fd so that it should be sent to the remote process (sandboxee),
   // and duplicated onto remote_fd in it. The local_fd will be closed after
-  // being sent (in SendFdsOverComms which is called by the Monitor class), so
-  // it should not be used from that point on.
+  // being sent (in SendFdsOverComms() which is called by the Monitor class when
+  // Sandbox2::RunAsync() is called), so local_fd should not be used from that
+  // point on. The application must not close local_fd after calling MapFd().
   void MapFd(int local_fd, int remote_fd);
+
+  // Similar to MapFd(), except local_fd remains available for use in the
+  // application even after Sandbox2::RunAsync() is called; the application
+  // retains responsibility for closing local_fd and may do so at any time after
+  // calling MapDupedFd().
+  void MapDupedFd(int local_fd, int remote_fd);
 
   // Creates and returns a socketpair endpoint. The other endpoint of the
   // socketpair is marked as to be sent to the remote process (sandboxee) with
@@ -62,7 +70,7 @@ class IPC final {
 
  private:
   friend class Executor;
-  friend class Monitor;
+  friend class MonitorBase;
   friend class IpcPeer;  // For testing
 
   // Uses a pre-connected file descriptor.
@@ -75,8 +83,9 @@ class IPC final {
   void InternalCleanupFdMap();
 
   // Tuple of file descriptor pairs which will be sent to the sandboxee: in the
-  // form of tuple<local_fd, remote_fd>: local_fd: local fd which should be sent
-  // to sandboxee, remote_fd: it will be overwritten by local_fd.
+  // form of tuple<local_fd, remote_fd, name>:
+  //   local_fd: local fd which should be sent to sandboxee
+  //   remote_fd: it will be overwritten by local_fd.
   std::vector<std::tuple<int, int, std::string>> fd_map_;
 
   // Comms channel used to exchange data with the sandboxee.

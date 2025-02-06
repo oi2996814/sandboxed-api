@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,17 +15,18 @@
 #ifndef SANDBOXED_API_VAR_REG_H_
 #define SANDBOXED_API_VAR_REG_H_
 
-#include <iostream>
+#include <algorithm>
+#include <cstring>
+#include <string>
 #include <type_traits>
 
-#include <glog/logging.h>
-#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "sandboxed_api/var_abstract.h"
+#include "sandboxed_api/var_type.h"
 
 namespace sapi::v {
 
-// The super-class for Reg. Specified as a class, so it can be used as a
+// The superclass for Reg. Specified as a class, so it can be used as a
 // type specifier in methods.
 class Callable : public Var {
  public:
@@ -45,7 +46,7 @@ class Callable : public Var {
   Callable() = default;
 };
 
-// class Reg represents register-sized variables.
+// Class Reg represents register-sized variables.
 template <typename T>
 class Reg : public Callable {
  public:
@@ -113,8 +114,11 @@ std::string Reg<T>::GetTypeString() const {
 
 template <typename T>
 std::string Reg<T>::ToString() const {
-  if constexpr (std::is_integral_v<T> || std::is_enum_v<T>) {
-    return absl::StrCat(value_);
+  if constexpr (std::is_integral_v<T>) {
+    return std::to_string(value_);
+  }
+  if constexpr (std::is_enum_v<T>) {
+    return std::to_string(static_cast<std::underlying_type_t<T>>(value_));
   }
   if constexpr (std::is_floating_point_v<T>) {
     return absl::StrFormat("%.10f", value_);
@@ -122,7 +126,7 @@ std::string Reg<T>::ToString() const {
   if constexpr (std::is_pointer<T>::value) {
     return absl::StrFormat("%p", value_);
   }
-  // Not reached.
+  // Not reached
 }
 
 }  // namespace sapi::v

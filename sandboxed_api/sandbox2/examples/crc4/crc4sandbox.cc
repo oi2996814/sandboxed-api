@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,11 +14,8 @@
 
 // A demo sandbox for the crc4bin binary
 
-#include <linux/filter.h>
-#include <sys/resource.h>
 #include <syscall.h>
 
-#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -27,10 +24,15 @@
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
-#include "sandboxed_api/util/flag.h"
-#include "absl/memory/memory.h"
-#include "sandboxed_api/config.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+#include "absl/base/log_severity.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
+#include "sandboxed_api/sandbox2/allowlists/namespaces.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/executor.h"
 #include "sandboxed_api/sandbox2/limits.h"
@@ -41,9 +43,7 @@
 #include "sandboxed_api/sandbox2/util/bpf_helper.h"
 #include "sandboxed_api/util/runfiles.h"
 
-using std::string;  // gflags <-> Abseil Flags
-
-ABSL_FLAG(string, input, "", "Input to calculate CRC4 of.");
+ABSL_FLAG(std::string, input, "", "Input to calculate CRC4 of.");
 ABSL_FLAG(bool, call_syscall_not_allowed, false,
           "Have sandboxee call clone (violation).");
 
@@ -51,7 +51,8 @@ namespace {
 
 std::unique_ptr<sandbox2::Policy> GetPolicy() {
   return sandbox2::PolicyBuilder()
-      .DisableNamespaces()  // Safe, as we only allow I/O on existing FDs.
+      .DisableNamespaces(sandbox2::NamespacesToken())  // Safe, as we only allow
+                                                       // I/O on existing FDs.
       .AllowExit()
       .AddPolicyOnSyscalls(
           {
@@ -87,9 +88,10 @@ bool SandboxedCRC4(sandbox2::Comms* comms, uint32_t* crc4) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+int main(int argc, char* argv[]) {
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  absl::ParseCommandLine(argc, argv);
+  absl::InitializeLog();
 
   if (absl::GetFlag(FLAGS_input).empty()) {
     LOG(ERROR) << "Parameter --input required.";
@@ -104,19 +106,16 @@ int main(int argc, char** argv) {
     args.push_back("-call_syscall_not_allowed");
   }
   std::vector<std::string> envs = {};
-  auto executor = absl::make_unique<sandbox2::Executor>(path, args, envs);
+  auto executor = std::make_unique<sandbox2::Executor>(path, args, envs);
 
   executor
       // Sandboxing is enabled by the binary itself (i.e. the crc4bin is capable
       // of enabling sandboxing on its own).
       ->set_enable_sandbox_before_exec(false)
       .limits()
-      // Remove restrictions on the size of address-space of sandboxed
-      // processes.
-      ->set_rlimit_as(RLIM64_INFINITY)
       // Kill sandboxed processes with a signal (SIGXFSZ) if it writes more than
       // these many bytes to the file-system.
-      .set_rlimit_fsize(1024)
+      ->set_rlimit_fsize(1024)
       .set_rlimit_cpu(60)  // The CPU time limit in seconds.
       .set_walltime_limit(absl::Seconds(5));
 

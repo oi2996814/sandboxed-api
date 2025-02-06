@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,7 +19,7 @@
 #include "sandboxed_api/util/status_macros.h"
 
 absl::Status CreateArchive(const char* initial_filename, int compress,
-                           const char** argv, bool verbose) {
+                           const std::vector<std::string>& argv, bool verbose) {
   // We split the filename path into dirname and filename. To the filename we
   // prepend "/output/"" so that it will work with the security policy.
   std::string abs_path = MakeAbsolutePathAtCWD(std::string(initial_filename));
@@ -28,9 +28,7 @@ absl::Status CreateArchive(const char* initial_filename, int compress,
 
   std::string filename = sandbox2::file::JoinPath("/output/", filename_tmp);
 
-  std::vector<std::string> absolute_paths;
-  sandbox2::util::CharPtrArrToVecString(const_cast<char* const*>(argv),
-                                        &absolute_paths);
+  std::vector<std::string> absolute_paths = argv;
 
   std::vector<std::string> relative_paths = absolute_paths;
 
@@ -322,7 +320,7 @@ absl::Status ExtractArchive(const char* filename, int do_extract, int flags,
   // We should only delete it if the do_extract flag is true which
   // means that this struct is instantiated only in that case.
   auto cleanup_ptr =
-      do_extract ? absl::make_unique<ExtractTempDirectoryCleanup>(tmp_dir)
+      do_extract ? std::make_unique<ExtractTempDirectoryCleanup>(tmp_dir)
                  : nullptr;
 
   std::string filename_absolute = MakeAbsolutePathAtCWD(filename);

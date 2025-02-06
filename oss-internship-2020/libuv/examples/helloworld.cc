@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,7 @@
 
 #include <iostream>
 
-#include "sandboxed_api/util/flag.h"
+#include "absl/flags/flag.h"
 #include "uv_sapi.sapi.h"  // NOLINT(build/include)
 
 namespace {
@@ -79,7 +79,7 @@ absl::Status HelloWorld() {
 
 int main(int argc, char* argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  sapi::InitLogging(argv[0]);
 
   if (absl::Status status = HelloWorld(); !status.ok()) {
     LOG(ERROR) << "HelloWorld failed: " << status.ToString();

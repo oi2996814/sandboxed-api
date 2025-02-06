@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,23 +13,23 @@
 // limitations under the License.
 
 #include <sys/prctl.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include <csignal>
 #include <cstdlib>
 
-#include "absl/base/attributes.h"
-#include "absl/strings/str_cat.h"
+#include "absl/base/log_severity.h"
+#include "absl/log/globals.h"
+#include "absl/status/status.h"
+#include "sandboxed_api/sandbox2/client.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/forkserver.h"
 #include "sandboxed_api/sandbox2/sanitizer.h"
+#include "sandboxed_api/sandbox2/unwind/unwind.h"
 #include "sandboxed_api/util/raw_logging.h"
-#include "sandboxed_api/util/strerror.h"
 
 int main() {
   // Make sure the logs go stderr.
-  google::LogToStderr();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
   // Close all non-essential FDs to keep newly opened FD numbers consistent.
   absl::Status status = sandbox2::sanitizer::CloseAllFDsExcept(
@@ -59,15 +59,18 @@ int main() {
     SAPI_RAW_PLOG(WARNING, "sigaction(SIGTERM, sa_handler=SIG_IGN)");
   }
 
-  sandbox2::Comms comms(sandbox2::Comms::kSandbox2ClientCommsFD);
+  sandbox2::Comms comms(sandbox2::Comms::kDefaultConnection);
   sandbox2::ForkServer fork_server(&comms);
+  sandbox2::sanitizer::WaitForSanitizer();
 
-  while (true) {
+  while (!fork_server.IsTerminated()) {
     pid_t child_pid = fork_server.ServeRequest();
-    if (!child_pid) {
-      // FORKSERVER_FORK sent to the global forkserver. This case does not make
-      // sense, we thus kill the process here.
-      exit(0);
+    if (child_pid == 0) {
+      sandbox2::Client client(&comms);
+      client.SandboxMeHere();
+      return sandbox2::RunLibUnwindAndSymbolizer(&comms) ? EXIT_SUCCESS
+                                                         : EXIT_FAILURE;
     }
   }
+  SAPI_RAW_VLOG(1, "ForkServer Comms closed. Exiting");
 }

@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -46,7 +46,6 @@ target_link_libraries(sapi_stringop
 
 # sandboxed_api/examples/stringop/lib:stringop-sapi
 add_sapi_library(stringop-sapi
-  SOURCES sandbox.h
   FUNCTIONS duplicate_string
             reverse_string
             pb_duplicate_string
@@ -65,7 +64,7 @@ target_link_libraries(stringop-sapi PRIVATE
   sapi::base
 )
 
-if(SAPI_ENABLE_TESTS)
+if(SAPI_BUILD_TESTING)
   # sandboxed_api/examples/stringop:main_stringop
   add_executable(sapi_main_stringop
     main_stringop.cc
@@ -73,10 +72,9 @@ if(SAPI_ENABLE_TESTS)
   set_target_properties(sapi_main_stringop PROPERTIES OUTPUT_NAME main_stringop)
   target_link_libraries(sapi_main_stringop PRIVATE
     absl::memory
+    absl::log
+    absl::statusor
     absl::strings
-    absl::time
-    glog::glog
-    sapi::flags
     sapi::sapi
     sapi::status
     sapi::stringop_sapi

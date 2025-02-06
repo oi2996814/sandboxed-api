@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,34 +17,58 @@
 #ifndef SANDBOXED_API_VAR_PROTO_H_
 #define SANDBOXED_API_VAR_PROTO_H_
 
-#include <cinttypes>
 #include <cstdint>
+#include <ctime>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
-#include "absl/base/macros.h"
-#include "absl/memory/memory.h"
+#include "absl/base/attributes.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/utility/utility.h"
-#include "sandboxed_api/proto_helper.h"
+#include "google/protobuf/message_lite.h"
+#include "sandboxed_api/rpcchannel.h"
+#include "sandboxed_api/util/proto_helper.h"
 #include "sandboxed_api/util/status_macros.h"
+#include "sandboxed_api/var_abstract.h"
 #include "sandboxed_api/var_lenval.h"
-#include "sandboxed_api/var_ptr.h"
+#include "sandboxed_api/var_type.h"
 
 namespace sapi::v {
 
 template <typename T>
 class Proto : public Var {
  public:
-  static_assert(std::is_base_of<google::protobuf::Message, T>::value,
+  class PrivateToken {
+   private:
+    explicit PrivateToken() = default;
+    friend class Proto;
+  };
+
+  static_assert(std::is_base_of<google::protobuf::MessageLite, T>::value,
                 "Template argument must be a proto message");
+
+  Proto() : wrapped_var_(SerializeProto(T{}).value()) {}
+
+  Proto(PrivateToken, std::vector<uint8_t> data)
+      : wrapped_var_(std::move(data)) {}
 
   ABSL_DEPRECATED("Use Proto<>::FromMessage() instead")
   explicit Proto(const T& proto)
       : wrapped_var_(SerializeProto(proto).value()) {}
 
+  Proto(Proto&& other) = default;
+  Proto& operator=(Proto&& other) = default;
+
   static absl::StatusOr<Proto<T>> FromMessage(const T& proto) {
     SAPI_ASSIGN_OR_RETURN(std::vector<uint8_t> len_val, SerializeProto(proto));
-    return absl::StatusOr<Proto<T>>(absl::in_place, proto);
+    return absl::StatusOr<Proto<T>>(absl::in_place, PrivateToken{},
+                                    std::move(len_val));
   }
 
   size_t GetSize() const final { return wrapped_var_.GetSize(); }
@@ -65,7 +89,7 @@ class Proto : public Var {
   ABSL_DEPRECATED("Use GetMessage() instead")
   std::unique_ptr<T> GetProtoCopy() const {
     if (auto proto = GetMessage(); proto.ok()) {
-      return absl::make_unique<T>(*std::move(proto));
+      return std::make_unique<T>(*std::move(proto));
     }
     return nullptr;
   }
@@ -98,10 +122,6 @@ class Proto : public Var {
   }
 
  private:
-  friend class absl::StatusOr<Proto<T>>;
-
-  explicit Proto(std::vector<uint8_t> data) : wrapped_var_(std::move(data)) {}
-
   // The management of reading/writing the data to the sandboxee is handled by
   // the LenVal class.
   LenVal wrapped_var_;

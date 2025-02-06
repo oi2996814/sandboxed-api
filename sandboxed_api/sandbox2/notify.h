@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,18 +19,31 @@
 
 #include <sys/types.h>
 
+#include <cstdint>
+
+#include "absl/base/attributes.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_format.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/result.h"
 #include "sandboxed_api/sandbox2/syscall.h"
+#include "sandboxed_api/sandbox2/util.h"
 
 namespace sandbox2 {
 
-enum ViolationType {
+enum class ViolationType : int {
   // A syscall disallowed by the policy was invoked.
-  kSyscallViolation,
+  kSyscall,
   // A syscall with cpu architecture not covered by the policy was invoked.
-  kArchitectureSwitchViolation,
+  kArchitectureSwitch,
 };
+
+template <typename Sink>
+void AbslStringify(Sink& sink, ViolationType e) {
+  absl::Format(
+      &sink, "%s",
+      e == ViolationType::kSyscall ? "kSyscall" : "kArchitectureSwitch");
+}
 
 class Notify {
  public:
@@ -50,10 +63,40 @@ class Notify {
   virtual void EventSyscallViolation(const Syscall& syscall,
                                      ViolationType type) {}
 
-  // Called when a policy called TRACE. The syscall is allowed if this method
-  // returns true.
-  // This allows for implementing 'log, but allow' policies.
+  // Called when a policy called TRACE. The syscall is allowed and logged if
+  // this method returns true. This allows for implementing 'log, but allow'
+  // policies.
+  ABSL_DEPRECATED("Override EventSyscallTrace() instead")
   virtual bool EventSyscallTrap(const Syscall& syscall) { return false; }
+
+  // Actions to perform after calling EventSyscallTrace.
+  enum class TraceAction {
+    // Deny the syscall.
+    kDeny,
+    // Allow the syscall.
+    kAllow,
+    // Allow the syscall so its return value can be inspected through a
+    // subsequent call to EventSyscallReturn.
+    // Requires Linux kernel 4.8 or later.
+    kInspectAfterReturn
+  };
+
+  // Called when a policy called TRACE. The syscall is allowed or denied
+  // depending on the return value of this function.
+  virtual TraceAction EventSyscallTrace(const Syscall& syscall) {
+    if (EventSyscallTrap(syscall)) {
+      LOG(WARNING) << "[PERMITTED]: SYSCALL ::: PID: " << syscall.pid()
+                   << ", PROG: '" << util::GetProgName(syscall.pid())
+                   << "' : " << syscall.GetDescription();
+      return TraceAction::kAllow;
+    }
+    return TraceAction::kDeny;
+  }
+
+  // Called when a policy called TRACE and EventSyscallTrace returned
+  // kInspectAfterReturn.
+  virtual void EventSyscallReturn(const Syscall& syscall,
+                                  int64_t return_value) {}
 
   // Called when a process received a signal.
   virtual void EventSignal(pid_t pid, int sig_no) {}

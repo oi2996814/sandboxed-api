@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +15,7 @@
 #ifndef SANDBOXED_API_SANDBOX2_TESTING_H_
 #define SANDBOXED_API_SANDBOX2_TESTING_H_
 
-// Forward include to new location
-#include "sandboxed_api/testing.h"
+// IWYU pragma: private, include "third_party/sandboxed_api/testing.h"
+#include "sandboxed_api/testing.h"  // IWYU pragma: export
 
 #endif  // SANDBOXED_API_SANDBOX2_TESTING_H_

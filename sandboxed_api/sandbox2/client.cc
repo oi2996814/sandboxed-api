@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,36 +17,120 @@
 #include "sandboxed_api/sandbox2/client.h"
 
 #include <fcntl.h>
+#include <linux/bpf_common.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <sys/prctl.h>
 #include <syscall.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <cerrno>
 #include <cinttypes>
-#include <climits>
-#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
+#include <limits>
 #include <memory>
+#include <string>
+#include <thread>  // NOLINT(build/c++11)
 #include <utility>
+#include <vector>
 
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
-#include "absl/memory/memory.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "sandboxed_api/sandbox2/comms.h"
+#include "sandboxed_api/sandbox2/logsink.h"
+#include "sandboxed_api/sandbox2/network_proxy/client.h"
+#include "sandboxed_api/sandbox2/policy.h"
 #include "sandboxed_api/sandbox2/sanitizer.h"
+#include "sandboxed_api/sandbox2/syscall.h"
+#include "sandboxed_api/sandbox2/util/bpf_helper.h"
 #include "sandboxed_api/util/raw_logging.h"
-#include "sandboxed_api/util/strerror.h"
+
+#ifndef SECCOMP_FILTER_FLAG_NEW_LISTENER
+#define SECCOMP_FILTER_FLAG_NEW_LISTENER (1UL << 3)
+#endif
 
 namespace sandbox2 {
+namespace {
 
-using ::sapi::StrError;
+void InitSeccompUnotify(sock_fprog prog, Comms* comms,
+                        uint32_t seccomp_extra_flags) {
+  // The policy might not allow sending the notify FD.
+  // Create a separate thread that won't get the seccomp policy to send the FD.
+  // Synchronize with it using plain atomics + seccomp TSYNC, so we don't need
+  // any additional syscalls.
+  std::atomic<int> fd(-1);
+  std::atomic<int> tid(-1);
+
+  std::thread th([comms, &fd, &tid]() {
+    int notify_fd = -1;
+    while (notify_fd == -1) {
+      notify_fd = fd.load(std::memory_order_seq_cst);
+    }
+    SAPI_RAW_CHECK(comms->SendFD(notify_fd), "sending unotify fd");
+    SAPI_RAW_CHECK(close(notify_fd) == 0, "closing unotify fd");
+    sock_filter filter = ALLOW;
+    struct sock_fprog allow_prog = {
+        .len = 1,
+        .filter = &filter,
+    };
+    int result = syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, 0,
+                         reinterpret_cast<uintptr_t>(&allow_prog));
+    SAPI_RAW_PCHECK(result != -1, "setting seccomp filter");
+    tid.store(syscall(__NR_gettid), std::memory_order_seq_cst);
+  });
+  th.detach();
+  int result = syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER,
+                       SECCOMP_FILTER_FLAG_NEW_LISTENER,
+                       reinterpret_cast<uintptr_t>(&prog));
+  SAPI_RAW_PCHECK(result != -1, "setting seccomp filter");
+  fd.store(result, std::memory_order_seq_cst);
+  pid_t child = -1;
+  while (child == -1) {
+    child = tid.load(std::memory_order_seq_cst);
+  }
+  // Apply seccomp.
+  struct sock_filter code[] = {
+      LOAD_ARCH,
+      JNE32(sandbox2::Syscall::GetHostAuditArch(), ALLOW),
+      LOAD_SYSCALL_NR,
+      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_seccomp, 0, 3),
+      ARG_32(3),
+      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, internal::kExecveMagic, 0, 1),
+      DENY,
+      ALLOW,
+  };
+  prog.len = ABSL_ARRAYSIZE(code);
+  prog.filter = code;
+  do {
+    result =
+        syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER,
+                SECCOMP_FILTER_FLAG_TSYNC | seccomp_extra_flags,
+                reinterpret_cast<uintptr_t>(&prog), internal::kExecveMagic);
+  } while (result == child);
+  SAPI_RAW_CHECK(result == 0, "Enabling seccomp filter");
+}
+
+void InitSeccompRegular(sock_fprog prog, uint32_t seccomp_extra_flags) {
+  int result = syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER,
+                       SECCOMP_FILTER_FLAG_TSYNC | seccomp_extra_flags,
+                       reinterpret_cast<uintptr_t>(&prog));
+  SAPI_RAW_PCHECK(result != -1, "setting seccomp filter");
+  SAPI_RAW_PCHECK(result == 0,
+                  "synchronizing threads using SECCOMP_FILTER_FLAG_TSYNC flag "
+                  "for thread=%d",
+                  result);
+}
+
+}  // namespace
 
 Client::Client(Comms* comms) : comms_(comms) {
   char* fdmap_envvar = getenv(kFDMapEnvVar);
@@ -69,8 +153,8 @@ std::string Client::GetFdMapEnvVar() const {
                       absl::StrJoin(fd_map_, ",", absl::PairFormatter(",")));
 }
 
-void Client::PrepareEnvironment() {
-  SetUpIPC();
+void Client::PrepareEnvironment(int* preserved_fd) {
+  SetUpIPC(preserved_fd);
   SetUpCwd();
 }
 
@@ -113,23 +197,28 @@ void Client::SetUpCwd() {
   if (!cwd.empty()) {
     // On the other hand this chdir can fail without a sandbox escape. It will
     // probably not have the intended behavior though.
-    if (chdir(cwd.c_str()) == -1) {
-      SAPI_RAW_VLOG(
-          1,
+    if (chdir(cwd.c_str()) == -1 && SAPI_RAW_VLOG_IS_ON(1)) {
+      SAPI_RAW_PLOG(
+          INFO,
           "chdir(%s) failed, falling back to previous cwd or / (with "
-          "namespaces). Use Executor::SetCwd() to set a working directory: %s",
-          cwd.c_str(), StrError(errno).c_str());
+          "namespaces). Use Executor::SetCwd() to set a working directory",
+          cwd.c_str());
     }
   }
 }
 
-void Client::SetUpIPC() {
+void Client::SetUpIPC(int* preserved_fd) {
   uint32_t num_of_fd_pairs;
   SAPI_RAW_CHECK(comms_->RecvUint32(&num_of_fd_pairs),
                  "receiving number of fd pairs");
   SAPI_RAW_CHECK(fd_map_.empty(), "fd map not empty");
 
   SAPI_RAW_VLOG(1, "Will receive %d file descriptor pairs", num_of_fd_pairs);
+
+  absl::flat_hash_map<int, int*> preserve_fds_map;
+  if (preserved_fd) {
+    preserve_fds_map.emplace(*preserved_fd, preserved_fd);
+  }
 
   for (uint32_t i = 0; i < num_of_fd_pairs; ++i) {
     int32_t requested_fd;
@@ -139,6 +228,27 @@ void Client::SetUpIPC() {
     SAPI_RAW_CHECK(comms_->RecvInt32(&requested_fd), "receiving requested fd");
     SAPI_RAW_CHECK(comms_->RecvFD(&fd), "receiving current fd");
     SAPI_RAW_CHECK(comms_->RecvString(&name), "receiving name string");
+
+    if (auto it = preserve_fds_map.find(requested_fd);
+        it != preserve_fds_map.end()) {
+      int old_fd = it->first;
+      int new_fd = dup(old_fd);
+      SAPI_RAW_PCHECK(new_fd != -1, "Failed to duplicate preserved fd=%d",
+                      old_fd);
+      SAPI_RAW_LOG(INFO, "Moved preserved fd=%d to %d", old_fd, new_fd);
+      close(old_fd);
+      int* pfd = it->second;
+      *pfd = new_fd;
+      preserve_fds_map.erase(it);
+      preserve_fds_map.emplace(new_fd, pfd);
+    }
+
+    if (requested_fd == comms_->GetConnectionFD()) {
+      comms_->MoveToAnotherFd();
+      SAPI_RAW_LOG(INFO,
+                   "Trying to map over comms fd (%d). Remapped comms to %d",
+                   requested_fd, comms_->GetConnectionFD());
+    }
 
     if (requested_fd != -1 && fd != requested_fd) {
       if (requested_fd > STDERR_FILENO && fcntl(requested_fd, F_GETFD) != -1) {
@@ -175,10 +285,10 @@ void Client::ReceivePolicy() {
 }
 
 void Client::ApplyPolicyAndBecomeTracee() {
-  // When running under TSAN, we need to notify TSANs background thread that we
-  // want it to exit and wait for it to be done. When not running under TSAN,
+  // When running under *SAN, we need to notify *SANs background thread that we
+  // want it to exit and wait for it to be done. When not running under *SAN,
   // this function does nothing.
-  sanitizer::WaitForTsan();
+  sanitizer::WaitForSanitizer();
 
   // Creds can be received w/o synchronization, once the connection is
   // established.
@@ -216,20 +326,18 @@ void Client::ApplyPolicyAndBecomeTracee() {
   // want ptrace at the last moment to avoid synchronization deadlocks.
   SAPI_RAW_CHECK(comms_->SendUint32(kClient2SandboxReady),
                  "receiving ready signal from executor");
-  uint32_t ret;  // wait for confirmation
-  SAPI_RAW_CHECK(comms_->RecvUint32(&ret),
+  uint32_t message;  // wait for confirmation
+  SAPI_RAW_CHECK(comms_->RecvUint32(&message),
                  "receving confirmation from executor");
-  SAPI_RAW_CHECK(ret == kSandbox2ClientDone,
-                 "invalid confirmation from executor");
-
-  int result =
-      syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC,
-              reinterpret_cast<uintptr_t>(&prog));
-  SAPI_RAW_PCHECK(result != -1, "setting seccomp filter");
-  SAPI_RAW_PCHECK(result == 0,
-                  "synchronizing threads using SECCOMP_FILTER_FLAG_TSYNC flag "
-                  "for thread=%d",
-                  result);
+  uint32_t seccomp_extra_flags =
+      allow_speculation_ ? SECCOMP_FILTER_FLAG_SPEC_ALLOW : 0;
+  if (message == kSandbox2ClientUnotify) {
+    InitSeccompUnotify(prog, comms_, seccomp_extra_flags);
+  } else {
+    SAPI_RAW_CHECK(message == kSandbox2ClientDone,
+                   "invalid confirmation from executor");
+    InitSeccompRegular(prog, seccomp_extra_flags);
+  }
 }
 
 int Client::GetMappedFD(const std::string& name) {
@@ -248,12 +356,12 @@ bool Client::HasMappedFD(const std::string& name) {
 void Client::SendLogsToSupervisor() {
   // This LogSink will register itself and send all logs to the executor until
   // the object is destroyed.
-  logsink_ = absl::make_unique<LogSink>(GetMappedFD(LogSink::kLogFDName));
+  logsink_ = std::make_unique<LogSink>(GetMappedFD(LogSink::kLogFDName));
 }
 
 NetworkProxyClient* Client::GetNetworkProxyClient() {
   if (proxy_client_ == nullptr) {
-    proxy_client_ = absl::make_unique<NetworkProxyClient>(
+    proxy_client_ = std::make_unique<NetworkProxyClient>(
         GetMappedFD(NetworkProxyClient::kFDName));
   }
   return proxy_client_.get();

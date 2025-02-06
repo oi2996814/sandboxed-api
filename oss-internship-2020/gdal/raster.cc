@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,8 +18,8 @@
 #include <fstream>
 #include <iostream>
 
-#include <glog/logging.h>
 #include "gdal_sapi.sapi.h"  // NOLINT(build/include)
+#include "absl/log/log.h"
 #include "sandboxed_api/util/fileops.h"
 
 class GdalSapiSandbox : public GDALSandbox {
@@ -37,18 +37,16 @@ class GdalSapiSandbox : public GDALSandbox {
         .AllowExit()
         .AllowStat()
         .AllowOpen()
-        .AllowSyscalls({
-            __NR_futex,
-            __NR_close,
-            __NR_recvmsg,
-            __NR_getdents64,
-            __NR_lseek,
-            __NR_getpid,
-            __NR_sysinfo,
-            __NR_prlimit64,
-            __NR_ftruncate,
-            __NR_unlink,
-        })
+        .AllowSyscall(__NR_futex)
+        .AllowSyscall(__NR_close)
+        .AllowSyscall(__NR_recvmsg)
+        .AllowSyscall(__NR_getdents64)
+        .AllowSyscall(__NR_lseek)
+        .AllowSyscall(__NR_getpid)
+        .AllowSyscall(__NR_sysinfo)
+        .AllowSyscall(__NR_prlimit64)
+        .AllowSyscall(__NR_ftruncate)
+        .AllowUnlink()
         .AddFile(file_path_)
         .BuildOrDie();
   }
@@ -167,7 +165,7 @@ absl::Status GdalMain(std::string filename) {
   return absl::OkStatus();
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
   // The file to be converted should be specified in the first argument while
   // running the program.
   if (argc < 2) {

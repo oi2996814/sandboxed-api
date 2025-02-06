@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,10 +15,10 @@
 #ifndef SANDBOXED_API_CONFIG_H_
 #define SANDBOXED_API_CONFIG_H_
 
+#include <features.h>
 #include <cstdint>
-#include <string>
 
-#include "absl/base/config.h"
+#include "absl/base/config.h"  // IWYU pragma: keep
 
 // GCC/Clang define __x86_64__, Visual Studio uses _M_X64
 #if defined(__x86_64__) || defined(_M_X64)
@@ -42,6 +42,9 @@
 
 namespace sapi {
 
+// Returns whether the executable running under code coverage.
+bool IsCoverageRun();
+
 namespace cpu {
 
 // CPU architectures known to Sandbox2
@@ -55,6 +58,7 @@ enum Architecture : uint16_t {
   kPPC64LE,
   kArm64,
   kArm,
+  kMax = kArm
 };
 
 }  // namespace cpu
@@ -98,7 +102,6 @@ namespace os {
 // Operating Systems known to Sandbox2
 enum Platform : uint16_t {
   kUnknown,
-  kAndroid,
   kLinux,
 };
 
@@ -109,16 +112,12 @@ namespace host_os {
 // Returns the current host OS platform if supported. If not supported,
 // returns platforms::kUnknown.
 constexpr os::Platform Platform() {
-#if defined(__ANDROID__)
-  return os::kAndroid;
-#elif defined(__linux__)
+#if defined(__linux__)
   return os::kLinux;
 #else
   return os::kUnknown;
 #endif
 }
-
-constexpr bool IsAndroid() { return Platform() == os::kAndroid; }
 
 constexpr bool IsLinux() { return Platform() == os::kLinux; }
 
@@ -150,8 +149,26 @@ constexpr bool IsASan() {
 #endif
 }
 
+constexpr bool IsHwASan() {
+#ifdef ABSL_HAVE_HWADDRESS_SANITIZER
+  return true;
+#else
+  return false;
+#endif
+}
+
+constexpr bool IsLSan() {
+#ifdef ABSL_HAVE_LEAK_SANITIZER
+  return true;
+#else
+  return false;
+#endif
+}
+
 // Returns whether any of the sanitizers is enabled.
-constexpr bool IsAny() { return IsMSan() || IsTSan() || IsASan(); }
+constexpr bool IsAny() {
+  return IsMSan() || IsTSan() || IsASan() || IsHwASan() || IsLSan();
+}
 
 }  // namespace sanitizers
 

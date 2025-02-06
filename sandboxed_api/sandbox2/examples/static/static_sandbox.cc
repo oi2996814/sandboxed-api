@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,20 +17,24 @@
 
 #include <fcntl.h>
 #include <sys/mman.h>
-#include <sys/resource.h>
 #include <syscall.h>
 #include <unistd.h>
 
-#include <csignal>
+#include <cerrno>
 #include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
-#include "sandboxed_api/util/flag.h"
-#include "absl/memory/memory.h"
+#include "absl/log/check.h"
+#include "absl/flags/parse.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+#include "absl/base/log_severity.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/executor.h"
 #include "sandboxed_api/sandbox2/limits.h"
@@ -69,6 +73,10 @@ std::unique_ptr<sandbox2::Policy> GetPolicy() {
       // write() calls with fd not in (1, 2) will continue evaluating the
       // policy. This means that other rules might still allow them.
 
+      // Allow the Sandboxee to set the name for better recognition in the
+      // process listing.
+      .AllowPrctlSetName()
+
       // Allow the dynamic loader to mark pages to never allow read-write-exec.
       .AddPolicyOnSyscall(__NR_mprotect,
                           {
@@ -105,6 +113,7 @@ std::unique_ptr<sandbox2::Policy> GetPolicy() {
               // /etc/ld.so.nohwcap.
               __NR_access,
 #endif
+              __NR_faccessat,
 
 #ifdef __NR_open
               __NR_open,
@@ -115,21 +124,22 @@ std::unique_ptr<sandbox2::Policy> GetPolicy() {
       .BuildOrDie();
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
   // This test is incompatible with sanitizers.
   // The `SKIP_SANITIZERS_AND_COVERAGE` macro won't work for us here since we
   // need to return something.
   if constexpr (sapi::sanitizers::IsAny()) {
     return EXIT_SUCCESS;
   }
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  absl::ParseCommandLine(argc, argv);
+  absl::InitializeLog();
 
   // Note: In your own code, use sapi::GetDataDependencyFilePath() instead.
   const std::string path = sapi::internal::GetSapiDataDependencyFilePath(
       "sandbox2/examples/static/static_bin");
   std::vector<std::string> args = {path};
-  auto executor = absl::make_unique<sandbox2::Executor>(path, args);
+  auto executor = std::make_unique<sandbox2::Executor>(path, args);
 
   executor
       // Sandboxing is enabled by the sandbox itself. The sandboxed binary is
@@ -137,12 +147,9 @@ int main(int argc, char** argv) {
       // Note: 'true' is the default setting for this class.
       ->set_enable_sandbox_before_exec(true)
       .limits()
-      // Remove restrictions on the size of address-space of sandboxed
-      // processes.
-      ->set_rlimit_as(RLIM64_INFINITY)
       // Kill sandboxed processes with a signal (SIGXFSZ) if it writes more than
       // these many bytes to the file-system.
-      .set_rlimit_fsize(1024 * 1024)
+      ->set_rlimit_fsize(1024 * 1024)
       // The CPU time limit.
       .set_rlimit_cpu(60)
       .set_walltime_limit(absl::Seconds(30));

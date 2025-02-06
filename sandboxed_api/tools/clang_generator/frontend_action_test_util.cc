@@ -14,14 +14,26 @@
 
 #include "sandboxed_api/tools/clang_generator/frontend_action_test_util.h"
 
+#include <algorithm>
+#include <iterator>
+#include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/FileSystemOptions.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/Tooling.h"
+#include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/VirtualFileSystem.h"
 
@@ -29,8 +41,8 @@ namespace sapi {
 namespace internal {
 
 absl::Status RunClangTool(
-    const std::vector<std::string> command_line,
-    const absl::flat_hash_map<std::string, std::string> file_contents,
+    const std::vector<std::string>& command_line,
+    const absl::flat_hash_map<std::string, std::string>& file_contents,
     std::unique_ptr<clang::FrontendAction> action) {
   // Setup an in-memory virtual filesystem
   llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> fs(
@@ -65,6 +77,20 @@ std::vector<std::string> FrontendActionTest::GetCommandLineFlagsForTesting(
     absl::string_view input_file) {
   return {"tool", "-fsyntax-only", "--std=c++17",
           "-I.",  "-Wno-error",    std::string(input_file)};
+}
+
+std::string Uglify(absl::string_view code) {
+  std::string result = absl::StrReplaceAll(code, {{"\n", " "}});
+  absl::RemoveExtraAsciiWhitespace(&result);
+  return result;
+}
+
+std::vector<std::string> UglifyAll(const std::vector<std::string>& snippets) {
+  std::vector<std::string> result;
+  result.reserve(snippets.size());
+  std::transform(snippets.cbegin(), snippets.cend(), std::back_inserter(result),
+                 Uglify);
+  return result;
 }
 
 }  // namespace sapi

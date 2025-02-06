@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,16 +16,16 @@
 // namespace. It can't connect with the server directly, but the executor can
 // establish a connection and pass the connected socket to the sandboxee.
 
-#include <sys/socket.h>
-#include <syscall.h>
+#include <unistd.h>
 
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
-#include <string>
 
+#include "absl/log/log.h"
 #include "absl/strings/str_format.h"
 #include "sandboxed_api/sandbox2/client.h"
 #include "sandboxed_api/sandbox2/comms.h"
-#include "sandboxed_api/sandbox2/util.h"
 
 static ssize_t ReadFromFd(int fd, uint8_t* buf, size_t size) {
   ssize_t received = 0;
@@ -60,9 +60,9 @@ static bool CommunicationTest(int sock) {
   return true;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
   // Set-up the sandbox2::Client object, using a file descriptor (1023).
-  sandbox2::Comms comms(sandbox2::Comms::kSandbox2ClientCommsFD);
+  sandbox2::Comms comms(sandbox2::Comms::kDefaultConnection);
   sandbox2::Client sandbox2_client(&comms);
   // Enable sandboxing from here.
   sandbox2_client.SandboxMeHere();
@@ -73,6 +73,8 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  if (!CommunicationTest(client)) return 2;
+  if (!CommunicationTest(client)) {
+    return 2;
+  }
   return 0;
 }

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,8 +21,10 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/logsink.h"
 #include "sandboxed_api/sandbox2/network_proxy/client.h"
@@ -33,10 +35,15 @@ class Client {
  public:
   // Client is ready to be sandboxed.
   static constexpr uint32_t kClient2SandboxReady = 0x0A0B0C01;
+
   // Sandbox is ready to monitor the sandboxee.
   static constexpr uint32_t kSandbox2ClientDone = 0x0A0B0C02;
 
+  // Sandboxee should setup seccomp_unotify and send back the FD.
+  static constexpr uint32_t kSandbox2ClientUnotify = 0x0A0B0C03;
+
   explicit Client(Comms* comms);
+  virtual ~Client() = default;
 
   Client(const Client&) = delete;
   Client& operator=(const Client&) = delete;
@@ -89,7 +96,10 @@ class Client {
   std::string GetFdMapEnvVar() const;
 
   // Sets up communication channels with the sandbox.
-  void SetUpIPC();
+  // preserved_fd contains file descriptor that should be kept open and alive.
+  // The FD number might be changed if needed.
+  // preserved_fd can be a nullptr.
+  void SetUpIPC(int* preserved_fd);
 
   // Sets up the current working directory.
   void SetUpCwd();
@@ -100,8 +110,10 @@ class Client {
   // Applies sandbox-bpf policy, have limits applied on us, and become ptrace'd.
   void ApplyPolicyAndBecomeTracee();
 
-  void PrepareEnvironment();
+  void PrepareEnvironment(int* preserved_fd = nullptr);
   void EnableSandbox();
+
+  bool allow_speculation_ = false;
 };
 
 }  // namespace sandbox2

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,14 +14,14 @@
 
 #include "sandboxed_api/util/status_macros.h"
 
-#include <string>
+#include <memory>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "sandboxed_api/util/status.h"
 #include "sandboxed_api/util/status_matchers.h"
 
@@ -88,7 +88,7 @@ TEST(AssignOrReturn, MovesUniquePtr) {
   auto func = []() -> absl::Status {
     std::unique_ptr<int> ptr;
     SAPI_ASSIGN_OR_RETURN(
-        ptr, absl::StatusOr<std::unique_ptr<int>>(absl::make_unique<int>(1)));
+        ptr, absl::StatusOr<std::unique_ptr<int>>(std::make_unique<int>(1)));
     EXPECT_EQ(*ptr, 1);
     return absl::UnknownError("EXPECTED");
   };
@@ -112,10 +112,10 @@ TEST(AssignOrReturn, MovesUniquePtrRepeatedlyToSingleVariable) {
   auto func = []() -> absl::Status {
     std::unique_ptr<int> ptr;
     SAPI_ASSIGN_OR_RETURN(
-        ptr, absl::StatusOr<std::unique_ptr<int>>(absl::make_unique<int>(1)));
+        ptr, absl::StatusOr<std::unique_ptr<int>>(std::make_unique<int>(1)));
     EXPECT_EQ(*ptr, 1);
     SAPI_ASSIGN_OR_RETURN(
-        ptr, absl::StatusOr<std::unique_ptr<int>>(absl::make_unique<int>(2)));
+        ptr, absl::StatusOr<std::unique_ptr<int>>(std::make_unique<int>(2)));
     EXPECT_EQ(*ptr, 2);
     return absl::UnknownError("EXPECTED");
   };

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,23 +22,33 @@
 //     --logtostderr
 //     /bin/ls
 
-#include <sys/resource.h>
 #include <sys/stat.h>
 #include <syscall.h>
 #include <unistd.h>
 
 #include <csignal>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
-#include "sandboxed_api/util/flag.h"
-#include "absl/memory/memory.h"
+#include "absl/base/log_severity.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/flags/usage.h"
+#include "absl/log/check.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
+#include "sandboxed_api/sandbox2/allowlists/all_syscalls.h"
+#include "sandboxed_api/sandbox2/allowlists/unrestricted_networking.h"
 #include "sandboxed_api/sandbox2/executor.h"
 #include "sandboxed_api/sandbox2/ipc.h"
 #include "sandboxed_api/sandbox2/limits.h"
@@ -49,8 +59,6 @@
 #include "sandboxed_api/sandbox2/util.h"
 #include "sandboxed_api/sandbox2/util/bpf_helper.h"
 #include "sandboxed_api/util/fileops.h"
-
-using std::string;
 
 ABSL_FLAG(bool, sandbox2tool_keep_env, false,
           "Keep current environment variables");
@@ -77,9 +85,9 @@ ABSL_FLAG(uint64_t, sandbox2tool_walltime_timeout, 60U,
           "Wall-time timeout in seconds (if >0)");
 ABSL_FLAG(uint64_t, sandbox2tool_file_size_creation_limit, 1024U,
           "Maximum size of created files");
-ABSL_FLAG(string, sandbox2tool_cwd, "/",
+ABSL_FLAG(std::string, sandbox2tool_cwd, "/",
           "If not empty, chdir to the directory before sandboxed");
-ABSL_FLAG(string, sandbox2tool_additional_bind_mounts, "",
+ABSL_FLAG(std::string, sandbox2tool_additional_bind_mounts, "",
           "If user namespaces are enabled, this option will add additional "
           "bind mounts. Mounts are separated by comma and can optionally "
           "specify a target using \"=>\" "
@@ -103,25 +111,34 @@ void OutputFD(int fd) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+int main(int argc, char* argv[]) {
+  const std::string program_name = sapi::file_util::fileops::Basename(argv[0]);
+  absl::SetProgramUsageMessage(
+      absl::StrFormat("A sandbox testing tool.\n"
+                      "Usage: %1$s [OPTION] -- CMD [ARGS]...",
+                      program_name));
 
-  if (argc < 2) {
-    absl::FPrintF(stderr, "Usage: %s [flags] -- cmd args...", argv[0]);
+  std::vector<std::string> args;
+  {
+    const std::vector<char*> parsed_argv = absl::ParseCommandLine(argc, argv);
+    args.assign(parsed_argv.begin() + 1, parsed_argv.end());
+  }
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  absl::InitializeLog();
+
+  if (args.empty()) {
+    absl::FPrintF(stderr, "Missing command to execute\n");
     return EXIT_FAILURE;
   }
 
-  // Pass everything after '--' to the sandbox.
-  std::vector<std::string> args;
-  sandbox2::util::CharPtrArrToVecString(&argv[1], &args);
+  const std::string& sandboxee = args[0];
 
   // Pass the current environ pointer, depending on the flag.
   std::vector<std::string> envp;
   if (absl::GetFlag(FLAGS_sandbox2tool_keep_env)) {
-    sandbox2::util::CharPtrArrToVecString(environ, &envp);
+    envp = sandbox2::util::CharPtrArray(environ).ToStringVector();
   }
-  auto executor = absl::make_unique<sandbox2::Executor>(argv[1], args, envp);
+  auto executor = std::make_unique<sandbox2::Executor>(sandboxee, args, envp);
 
   sapi::file_util::fileops::FDCloser recv_fd1;
   if (absl::GetFlag(FLAGS_sandbox2tool_redirect_fd1)) {
@@ -132,12 +149,9 @@ int main(int argc, char** argv) {
 
   executor
       ->limits()
-      // Remove restrictions on the size of address-space of sandboxed
-      // processes.
-      ->set_rlimit_as(RLIM64_INFINITY)
       // Kill sandboxed processes with a signal (SIGXFSZ) if it writes more than
       // this to the file-system.
-      .set_rlimit_fsize(
+      ->set_rlimit_fsize(
           absl::GetFlag(FLAGS_sandbox2tool_file_size_creation_limit))
       // An arbitrary, but empirically safe value.
       .set_rlimit_nofile(1024U)
@@ -151,10 +165,10 @@ int main(int argc, char** argv) {
 
   sandbox2::PolicyBuilder builder;
   builder.AddPolicyOnSyscall(__NR_tee, {KILL});
-  builder.DangerDefaultAllowAll();
+  builder.DefaultAction(sandbox2::AllowAllSyscalls());
 
   if (absl::GetFlag(FLAGS_sandbox2tool_need_networking)) {
-    builder.AllowUnrestrictedNetworking();
+    builder.Allow(sandbox2::UnrestrictedNetworking());
   }
   if (absl::GetFlag(FLAGS_sandbox2tool_mount_tmp)) {
     builder.AddTmpfs("/tmp", /*size=*/4ULL << 20 /* 4 MiB */);
@@ -182,7 +196,7 @@ int main(int argc, char** argv) {
   }
 
   if (absl::GetFlag(FLAGS_sandbox2tool_resolve_and_add_libraries)) {
-    builder.AddLibrariesForBinary(argv[1]);
+    builder.AddLibrariesForBinary(sandboxee);
   }
 
   auto policy = builder.BuildOrDie();
@@ -200,15 +214,15 @@ int main(int argc, char** argv) {
   if (s2.RunAsync()) {
     if (absl::GetFlag(FLAGS_sandbox2tool_pause_resume)) {
       sleep(3);
-      kill(s2.GetPid(), SIGSTOP);
+      kill(s2.pid(), SIGSTOP);
       sleep(3);
-      s2.SetWallTimeLimit(3);
-      kill(s2.GetPid(), SIGCONT);
+      s2.set_walltime_limit(absl::Seconds(3));
+      kill(s2.pid(), SIGCONT);
     } else if (absl::GetFlag(FLAGS_sandbox2tool_pause_kill)) {
       sleep(3);
-      kill(s2.GetPid(), SIGSTOP);
+      kill(s2.pid(), SIGSTOP);
       sleep(1);
-      kill(s2.GetPid(), SIGKILL);
+      kill(s2.pid(), SIGKILL);
       sleep(1);
     } else if (absl::GetFlag(FLAGS_sandbox2tool_dump_stack)) {
       sleep(1);

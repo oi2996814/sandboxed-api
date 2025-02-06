@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -38,6 +38,9 @@ bzl_library(
     name = "proto_bzl",
     srcs = ["proto.bzl"],
     visibility = ["//visibility:private"],
+    deps = [
+        "@rules_proto//proto:defs",
+    ],
 )
 
 bzl_library(
@@ -55,5 +58,17 @@ bzl_library(
 bzl_library(
     name = "sapi",
     srcs = ["sapi.bzl"],
+    visibility = ["//visibility:private"],
+    deps = [
+        ":build_defs_bzl",
+        ":embed_data_bzl",
+        ":proto_bzl",
+        "@bazel_tools//tools/cpp:toolchain_utils.bzl",
+    ],
+)
+
+bzl_library(
+    name = "llvm_config_bzl",
+    srcs = ["llvm_config.bzl"],
     visibility = ["//visibility:private"],
 )

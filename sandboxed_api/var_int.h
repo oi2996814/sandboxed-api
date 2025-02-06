@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,11 +15,19 @@
 #ifndef SANDBOXED_API_VAR_INT_H_
 #define SANDBOXED_API_VAR_INT_H_
 
+#include <sys/types.h>
+
+#include <cstdint>
 #include <memory>
 
+#include "absl/status/status.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/var_ptr.h"
 #include "sandboxed_api/var_reg.h"
+
+namespace sapi {
+class RPCChannel;
+}  // namespace sapi
 
 namespace sapi::v {
 

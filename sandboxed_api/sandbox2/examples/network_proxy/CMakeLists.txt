@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,13 +21,21 @@ add_dependencies(sandbox2_networkproxy_sandbox
   sandbox2::networkproxy_bin
 )
 target_link_libraries(sandbox2_networkproxy_sandbox PRIVATE
+  absl::flags
+  absl::flags_parse
+  absl::log
+  absl::log_globals
+  absl::log_initialize
+  absl::log_severity
+  absl::statusor
+  absl::strings
+  absl::time
   sandbox2::bpf_helper
   sandbox2::comms
-  sapi::fileops
+  sandbox2::network_proxy_testing
   sapi::runfiles
   sandbox2::sandbox2
   sapi::base
-  sapi::flags
 )
 
 # sandboxed_api/sandbox2/examples/networkproxy:networkproxy_bin
@@ -39,14 +47,19 @@ set_target_properties(sandbox2_networkproxy_bin PROPERTIES
 )
 add_executable(sandbox2::networkproxy_bin ALIAS sandbox2_networkproxy_bin)
 target_link_libraries(sandbox2_networkproxy_bin PRIVATE absl::status
+  absl::flags
+  absl::flags_parse
+  absl::log
+  absl::log_globals
+  absl::log_initialize
   absl::statusor
   absl::str_format
+  absl::strings
   sandbox2::client
   sandbox2::comms
   sapi::fileops
   sandbox2::network_proxy_client
   sapi::base
-  sapi::flags
   sapi::status
   sapi::strerror
 )

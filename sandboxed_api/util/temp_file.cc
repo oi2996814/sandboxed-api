@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,19 +14,16 @@
 
 #include "sandboxed_api/util/temp_file.h"
 
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
-#include <cstdlib>
-#include <vector>
+#include <cerrno>
+#include <string>
+#include <utility>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-#include "sandboxed_api/util/fileops.h"
-#include "sandboxed_api/util/os_error.h"
+#include "absl/strings/string_view.h"
 #include "sandboxed_api/util/status_macros.h"
 
 namespace sapi {
@@ -40,7 +37,7 @@ absl::StatusOr<std::pair<std::string, int>> CreateNamedTempFile(
   std::string name_template = absl::StrCat(prefix, kMktempSuffix);
   int fd = mkstemp(&name_template[0]);
   if (fd < 0) {
-    return absl::UnknownError(sapi::OsErrorMessage(errno, "mkstemp()"));
+    return absl::ErrnoToStatus(errno, "mkstemp()");
   }
   return std::pair<std::string, int>{std::move(name_template), fd};
 }
@@ -55,7 +52,7 @@ absl::StatusOr<std::string> CreateNamedTempFileAndClose(
 absl::StatusOr<std::string> CreateTempDir(absl::string_view prefix) {
   std::string name_template = absl::StrCat(prefix, kMktempSuffix);
   if (mkdtemp(&name_template[0]) == nullptr) {
-    return absl::UnknownError(sapi::OsErrorMessage(errno, "mkdtemp()"));
+    return absl::ErrnoToStatus(errno, "mkdtemp()");
   }
   return name_template;
 }

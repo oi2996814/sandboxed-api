@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -38,14 +38,13 @@ add_dependencies(sapi_sum
 )
 target_link_libraries(sapi_sum
   PRIVATE $<TARGET_OBJECTS:sapi_sum_params_proto>
-          glog::glog
+          absl::log
           sapi::base
   PUBLIC protobuf::libprotobuf
 )
 
 # sandboxed_api/examples/sum/lib:sum-sapi
 add_sapi_library(sum-sapi
-  SOURCES sandbox.h
   FUNCTIONS sum
             sums
             addf
@@ -79,11 +78,14 @@ add_executable(sapi_main_sum
 set_target_properties(sapi_main_sum PROPERTIES OUTPUT_NAME main_sum)
 add_executable(sapi::main_sum ALIAS sapi_main_sum)
 target_link_libraries(sapi_main_sum PRIVATE
-  absl::memory
+  absl::core_headers
+  absl::log
+  absl::log_initialize
+  absl::flags_parse
+  absl::status
+  absl::statusor
   absl::strings
-  glog::glog
   sapi::base
-  sapi::flags
   sapi::sapi
   sapi::status
   sapi::sum_sapi

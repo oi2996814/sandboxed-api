@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,8 @@
 
 #include <iostream>
 
-#include "sandboxed_api/util/flag.h"
+#include "absl/flags/flag.h"
+#include "absl/log/initialize.h"
 #include "uv_sapi.sapi.h"  // NOLINT(build/include)
 
 namespace {
@@ -31,8 +32,9 @@ class UVSapiIdleBasicSandbox : public uv::UVSandbox {
         .AllowDynamicStartup()
         .AllowExit()
         .AllowFutexOp(FUTEX_WAKE_PRIVATE)
-        .AllowSyscalls({__NR_epoll_create1, __NR_epoll_ctl, __NR_epoll_wait,
-                        __NR_eventfd2, __NR_pipe2})
+        .AllowEpoll()
+        .AllowSyscall(__NR_eventfd2)
+        .AllowPipe()
         .AllowWrite()
         .BuildOrDie();
   }
@@ -84,8 +86,7 @@ absl::Status IdleBasic() {
   }
 
   // Close idler
-  sapi::v::NullPtr null_ptr;
-  SAPI_RETURN_IF_ERROR(api.sapi_uv_close(&idler, &null_ptr));
+  SAPI_RETURN_IF_ERROR(api.sapi_uv_close(&idler, nullptr));
 
   // Close loop
   SAPI_ASSIGN_OR_RETURN(return_code, api.sapi_uv_loop_close(&loop));
@@ -102,8 +103,8 @@ absl::Status IdleBasic() {
 }  // namespace
 
 int main(int argc, char* argv[]) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  absl::ParseCommandLine(argc, argv);
+  absl::InitializeLog();
 
   if (absl::Status status = IdleBasic(); !status.ok()) {
     LOG(ERROR) << "IdleBasic failed: " << status.ToString();

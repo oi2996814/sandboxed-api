@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,7 +26,8 @@
 #include <string>
 #include <vector>
 
-#include "sandboxed_api/config.h"
+#include "sandboxed_api/config.h"  // IWYU pragma: export
+#include "sandboxed_api/sandbox2/syscall_defs.h"
 
 namespace sandbox2 {
 
@@ -59,12 +60,13 @@ class Syscall {
   uint64_t instruction_pointer() const { return ip_; }
 
   std::string GetName() const;
-
+  std::vector<syscalls::ArgData> GetArgumentsData() const;
   std::vector<std::string> GetArgumentsDescription() const;
   std::string GetDescription() const;
 
  private:
   friend class Regs;
+  friend class UnotifyMonitor;
 
   explicit Syscall(pid_t pid) : pid_(pid) {}
   Syscall(sapi::cpu::Architecture arch, uint64_t nr, Args args, pid_t pid,

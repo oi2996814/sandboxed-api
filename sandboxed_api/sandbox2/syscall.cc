@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,16 +15,14 @@
 #include "sandboxed_api/sandbox2/syscall.h"
 
 #include <linux/audit.h>
-#include <linux/elf-em.h>
 
-#include <climits>
-#include <csignal>
-#include <cstring>
+#include <cstdint>
 #include <string>
+#include <vector>
 
-#include <glog/logging.h>
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/syscall_defs.h"
 
@@ -74,6 +72,10 @@ std::string Syscall::GetName() const {
     return std::string(name);
   }
   return absl::StrFormat("UNKNOWN[%d/0x%x]", nr_, nr_);
+}
+
+std::vector<syscalls::ArgData> Syscall::GetArgumentsData() const {
+  return SyscallTable::get(arch_).GetArgumentsData(nr_, args_.data(), pid_);
 }
 
 std::vector<std::string> Syscall::GetArgumentsDescription() const {

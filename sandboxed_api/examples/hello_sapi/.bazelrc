@@ -1,2 +1,5 @@
+# Migration to Bzlmod is not ready yet
+common --noenable_bzlmod
+
 # Build in C++17 mode without a custom CROSSTOOL
-build --cxxopt=-std=c++17
+build --cxxopt=-std=c++17 --host_cxxopt=-std=c++17

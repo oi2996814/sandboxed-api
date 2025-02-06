@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -39,19 +39,32 @@ endfunction()
 # except that it strips import paths. This is necessary, because CMake's
 # protobuf rules don't work well with imports across different directories.
 function(sapi_protobuf_generate_cpp SRCS HDRS)
-  cmake_parse_arguments(_pb "" "EXPORT_MACRO" "" ${ARGN})
+  cmake_parse_arguments(PARSE_ARGV 2 _pb "" "EXPORT_MACRO" "")
   if(NOT _pb_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "sapi_protobuf_generate_cpp() missing proto files")
     return()
   endif()
 
   foreach(_file IN LISTS _pb_UNPARSED_ARGUMENTS)
-    file(READ "${_file}" _pb_orig)
-    string(REGEX REPLACE "import \".*/([^/]+\\.proto)\""
-                         "import \"\\1\"" _pb_repl "${_pb_orig}")
-    set(_file "${CMAKE_CURRENT_BINARY_DIR}/${_file}")
-    file(WRITE "${_file}" "${_pb_repl}")
-    list(APPEND _pb_files "${_file}")
+    get_filename_component(_abs_file_orig "${_file}" ABSOLUTE)
+    get_filename_component(_abs_file_repl
+                           "${CMAKE_CURRENT_BINARY_DIR}/${_file}" ABSOLUTE)
+
+    # Add a CMake script that replaces the actual import paths. An extra
+    # script file is necessary so that this happens at build time.
+    set(_cmake_gen "${CMAKE_CURRENT_BINARY_DIR}/${_file}.gen.cmake")
+    file(WRITE "${_cmake_gen}" "\
+file(READ \"${_abs_file_orig}\" _pb_orig)
+string(REGEX REPLACE \"import \\\".*/([^/]+\\\\.proto)\\\"\"\
+                     \"import \\\"\\\\1\\\"\" _pb_repl \"\${_pb_orig}\")
+file(WRITE \"${_abs_file_repl}\" \"\${_pb_repl}\")\
+")
+    add_custom_command(OUTPUT "${_abs_file_repl}"
+                       COMMAND "${CMAKE_COMMAND}"
+                       ARGS -P "${_cmake_gen}"
+                       DEPENDS "${_abs_file_orig}")
+
+    list(APPEND _pb_files "${_abs_file_repl}")
   endforeach()
 
   set(_outvar)
@@ -140,8 +153,8 @@ function(sapi_protobuf_generate)
 
   # Create an include path for each file specified
   foreach(_file ${_pb_PROTOS})
-    get_filename_component(_abs_file ${_file} ABSOLUTE)
-    get_filename_component(_abs_path ${_abs_file} PATH)
+    get_filename_component(_abs_file "${_file}" ABSOLUTE)
+    get_filename_component(_abs_path "${_abs_file}" PATH)
     list(FIND _protobuf_include_path "${_abs_path}" _contains_already)
     if(${_contains_already} EQUAL -1)
       list(APPEND _protobuf_include_path -I ${_abs_path})
@@ -158,9 +171,9 @@ function(sapi_protobuf_generate)
 
   set(_generated_srcs_all)
   foreach(_proto IN LISTS _pb_PROTOS)
-    get_filename_component(_abs_file ${_proto} ABSOLUTE)
-    get_filename_component(_abs_dir ${_abs_file} DIRECTORY)
-    get_filename_component(_basename ${_proto} NAME_WE)
+    get_filename_component(_abs_file "${_proto}" ABSOLUTE)
+    get_filename_component(_abs_dir "${_abs_file}" DIRECTORY)
+    get_filename_component(_basename "${_proto}" NAME_WE)
 
     set(_generated_srcs)
     foreach(_ext ${_pb_GENERATE_EXTENSIONS})
@@ -170,7 +183,7 @@ function(sapi_protobuf_generate)
     list(APPEND _generated_srcs_all ${_generated_srcs})
 
     add_custom_command(OUTPUT ${_generated_srcs}
-                       COMMAND  protobuf::protoc
+                       COMMAND protobuf::protoc
                        ARGS --${_pb_LANGUAGE}_out
                             ${_dll_export_decl}${_pb_PROTOC_OUT_DIR}
                             ${_protobuf_include_path}
@@ -180,8 +193,10 @@ function(sapi_protobuf_generate)
                        VERBATIM)
   endforeach()
 
-  set_source_files_properties(${_generated_srcs_all}
-                              PROPERTIES GENERATED TRUE)
+  set_source_files_properties(${_generated_srcs_all} PROPERTIES
+    GENERATED TRUE
+    INCLUDE_DIRECTORIES "${absl_SOURCE_DIR}"
+  )
   if(_pb_OUT_VAR)
     set(${_pb_OUT_VAR} ${_generated_srcs_all} PARENT_SCOPE)
   endif()
@@ -189,3 +204,20 @@ function(sapi_protobuf_generate)
     target_sources(${_pb_TARGET} PRIVATE ${_generated_srcs_all})
   endif()
 endfunction()
+
+# Adds a sub-directory from Sandboxed API to the build. This is a simple macro
+# that calls `add_subdirectory()` with Sandboxed API's source and binary
+# directories and `EXCLUDE_FROM_ALL`.
+# This is useful in embedding projects to be able to refer to pre-sandboxed
+# libraries easily.
+# In order to be able build everything in one go, this macro also accepts a
+# `INCLUDE_FROM_ALL` option. It is expected that this will only be used from
+# `contrib/CMakeLists.txt`.
+macro(add_sapi_subdirectory)
+  cmake_parse_arguments(_sd "INCLUDE_FROM_ALL" "" "" ${ARGN})
+  if(NOT ${_sd_INCLUDE_FROM_ALL})
+    set(_sd_exclude_from_all EXCLUDE_FROM_ALL)
+  endif()
+  add_subdirectory("${SAPI_SOURCE_DIR}/${ARGV0}" "${SAPI_BINARY_DIR}/${ARGV0}"
+                   ${_sd_exclude_from_all})
+endmacro()

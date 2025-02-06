@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -63,10 +63,9 @@ absl::StatusOr<Data> ReadPng(LibPNGApi& api, absl::string_view infile) {
 
   absl::StatusOr<png_structp> status_or_png_structp;
   sapi::v::ConstCStr ver_string_var(PNG_LIBPNG_VER_STRING);
-  sapi::v::NullPtr null = sapi::v::NullPtr();
   SAPI_ASSIGN_OR_RETURN(
       status_or_png_structp,
-      api.png_create_read_struct_wrapper(ver_string_var.PtrBefore(), &null));
+      api.png_create_read_struct_wrapper(ver_string_var.PtrBefore(), nullptr));
 
   sapi::v::RemotePtr struct_ptr(status_or_png_structp.value());
   if (!struct_ptr.GetValue()) {
@@ -141,10 +140,9 @@ absl::Status WritePng(LibPNGApi& api, absl::string_view outfile, Data& data) {
 
   absl::StatusOr<png_structp> status_or_png_structp;
   sapi::v::ConstCStr ver_string_var(PNG_LIBPNG_VER_STRING);
-  sapi::v::NullPtr null = sapi::v::NullPtr();
   SAPI_ASSIGN_OR_RETURN(
       status_or_png_structp,
-      api.png_create_write_struct_wrapper(ver_string_var.PtrBefore(), &null));
+      api.png_create_write_struct_wrapper(ver_string_var.PtrBefore(), nullptr));
 
   sapi::v::RemotePtr struct_ptr(status_or_png_structp.value());
   if (!struct_ptr.GetValue()) {
@@ -176,7 +174,7 @@ absl::Status WritePng(LibPNGApi& api, absl::string_view outfile, Data& data) {
       &struct_ptr, data.row_pointers->PtrBefore(), data.height, data.rowbytes));
 
   SAPI_RETURN_IF_ERROR(api.png_setjmp(&struct_ptr));
-  SAPI_RETURN_IF_ERROR(api.png_write_end(&struct_ptr, &null));
+  SAPI_RETURN_IF_ERROR(api.png_write_end(&struct_ptr, nullptr));
 
   SAPI_RETURN_IF_ERROR(api.png_fclose(&file));
   return absl::OkStatus();
@@ -220,7 +218,7 @@ absl::Status LibPNGMain(const std::string& infile, const std::string& outfile) {
   return absl::OkStatus();
 }
 
-int main(int argc, const char** argv) {
+int main(int argc, char* argv[]) {
   if (argc != 3) {
     LOG(ERROR) << "Usage: example5 infile outfile";
     return EXIT_FAILURE;

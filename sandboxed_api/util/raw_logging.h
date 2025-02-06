@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,8 @@
 #ifndef SANDBOXED_API_UTIL_RAW_LOGGING_H_
 #define SANDBOXED_API_UTIL_RAW_LOGGING_H_
 
+#include <cerrno>
+#include <cstddef>
 #include <string>
 #include <utility>
 
@@ -30,20 +32,14 @@
 #include "absl/strings/str_format.h"
 #include "sandboxed_api/util/strerror.h"
 
-// `SAPI_INTERNAL_UNREACHABLE` is an unreachable statement.  A program which
-// reaches one has undefined behavior, and the compiler may optimize
-// accordingly.
-#if defined(__GNUC__) || ABSL_HAVE_BUILTIN(__builtin_unreachable)
-#define SAPI_INTERNAL_UNREACHABLE __builtin_unreachable()
-#elif defined(_MSC_VER)
-#define SAPI_INTERNAL_UNREACHABLE __assume(0)
-#else
-#define SAPI_INTERNAL_UNREACHABLE
-#endif
-
-#ifdef ABSL_RAW_LOG
+#if defined(ABSL_RAW_LOG)
 #define SAPI_RAW_LOG ABSL_RAW_LOG
+#define SAPI_USE_ABSL_RAW_LOG 1
 #else
+#define SAPI_RAW_LOGGING_INTERNAL_INFO ::absl::LogSeverity::kInfo
+#define SAPI_RAW_LOGGING_INTERNAL_WARNING ::absl::LogSeverity::kWarning
+#define SAPI_RAW_LOGGING_INTERNAL_ERROR ::absl::LogSeverity::kError
+#define SAPI_RAW_LOGGING_INTERNAL_FATAL ::absl::LogSeverity::kFatal
 // This is similar to LOG(severity) << format..., but
 // * it is to be used ONLY by low-level modules that can't use normal LOG()
 // * it is designed to be a low-level logger that does not allocate any
@@ -64,6 +60,9 @@
     ::sapi::raw_logging_internal::RawLog(SAPI_RAW_LOGGING_INTERNAL_##severity, \
                                          absl_raw_logging_internal_basename,   \
                                          __LINE__, __VA_ARGS__);               \
+    if (SAPI_RAW_LOGGING_INTERNAL_##severity == ::absl::LogSeverity::kFatal) { \
+      ABSL_UNREACHABLE();                                                      \
+    }                                                                          \
   } while (0)
 #endif
 
@@ -83,14 +82,9 @@
   } while (0)
 #endif
 
-#define SAPI_RAW_LOGGING_INTERNAL_INFO ::absl::LogSeverity::kInfo
-#define SAPI_RAW_LOGGING_INTERNAL_WARNING ::absl::LogSeverity::kWarning
-#define SAPI_RAW_LOGGING_INTERNAL_ERROR ::absl::LogSeverity::kError
-#define SAPI_RAW_LOGGING_INTERNAL_FATAL ::absl::LogSeverity::kFatal
-
-// Returns whether SAPI verbose logging is enabled, as determined by the
+// Returns whether SAPI raw verbose logging is enabled, as determined by the
 // SAPI_VLOG_LEVEL environment variable.
-#define SAPI_VLOG_IS_ON(verbose_level) \
+#define SAPI_RAW_VLOG_IS_ON(verbose_level) \
   ::sapi::raw_logging_internal::VLogIsOn(verbose_level)
 
 // Like SAPI_RAW_LOG(), but also logs the current value of errno and its
@@ -135,19 +129,13 @@ namespace sapi::raw_logging_internal {
 
 constexpr int kLogBufSize = 3000;
 
+#ifndef SAPI_USE_ABSL_RAW_LOG
 // Helper function to implement ABSL_RAW_LOG
 // Logs format... at "severity" level, reporting it
 // as called from file:line.
 // This does not allocate memory or acquire locks.
 void RawLog(absl::LogSeverity severity, const char* file, int line,
             const char* format, ...) ABSL_PRINTF_ATTRIBUTE(4, 5);
-
-// Writes the provided buffer directly to stderr, in a safe, low-level manner.
-//
-// In POSIX this means calling write(), which is async-signal safe and does
-// not malloc.  If the platform supports the SYS_write syscall, we invoke that
-// directly to side-step any libc interception.
-void SafeWriteToStderr(const char* s, size_t len);
 
 // compile-time function to get the "base" filename, that is, the part of
 // a filename after the last "/" or "\" path separator.  The search starts at
@@ -157,6 +145,7 @@ constexpr const char* Basename(const char* fname, int offset) {
              ? fname + offset
              : Basename(fname, offset - 1);
 }
+#endif
 
 bool VLogIsOn(int verbose_level);
 

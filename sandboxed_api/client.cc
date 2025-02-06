@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,33 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "sandboxed_api/sandbox2/client.h"
-
 #include <dlfcn.h>
-#include <sys/syscall.h>
+#include <syscall.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <list>
+#include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
-#include <glog/logging.h>
+#include "absl/base/attributes.h"
+#include "absl/base/dynamic_annotations.h"
+#include "absl/flags/parse.h"
+#include "absl/log/check.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
-#include "absl/base/dynamic_annotations.h"
-#include "sandboxed_api/util/flag.h"
-#include "absl/strings/str_cat.h"
 #include "sandboxed_api/call.h"
-#include "sandboxed_api/config.h"
 #include "sandboxed_api/lenval_core.h"
-#include "sandboxed_api/proto_arg.pb.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/forkingclient.h"
 #include "sandboxed_api/sandbox2/logsink.h"
-#include "sandboxed_api/vars.h"
+#include "sandboxed_api/util/proto_arg.pb.h"
+#include "sandboxed_api/util/proto_helper.h"
+#include "sandboxed_api/var_type.h"
 
 #include <ffi.h>
-#include <ffitarget.h>
 
 namespace sapi {
 namespace {
@@ -55,13 +63,14 @@ ffi_type* GetFFIType(size_t size, v::Type type) {
     case v::Type::kFloat:
       if (size == sizeof(float)) {
         return &ffi_type_float;
-      } else if (size == sizeof(double)) {
-        return &ffi_type_double;
-      } else if (size == sizeof(long double)) {
-        return &ffi_type_longdouble;
-      } else {
-        LOG(FATAL) << "Unknown floating-point size: " << size;
       }
+      if (size == sizeof(double)) {
+        return &ffi_type_double;
+      }
+      if (size == sizeof(long double)) {
+        return &ffi_type_longdouble;
+      }
+      LOG(FATAL) << "Unsupported floating-point size: " << size;
     case v::Type::kInt:
       switch (size) {
         case 1:
@@ -73,7 +82,7 @@ ffi_type* GetFFIType(size_t size, v::Type type) {
         case 8:
           return &ffi_type_uint64;
         default:
-          LOG(FATAL) << "Unknown integral size: " << size;
+          LOG(FATAL) << "Unsupported integral size: " << size;
       }
     case v::Type::kStruct:
       LOG(FATAL) << "Structs are not supported as function arguments";
@@ -143,7 +152,7 @@ class FunctionCallPreparer {
 
  private:
   // Deserializes the protobuf argument.
-  google::protobuf::Message** GetDeserializedProto(LenValStruct* src) {
+  google::protobuf::MessageLite** GetDeserializedProto(LenValStruct* src) {
     ProtoArg proto_arg;
     if (!proto_arg.ParseFromArray(src->data, src->size)) {
       LOG(FATAL) << "Unable to parse ProtoArg.";
@@ -153,7 +162,7 @@ class FunctionCallPreparer {
             proto_arg.full_name());
     LOG_IF(FATAL, desc == nullptr) << "Unable to find the descriptor for '"
                                    << proto_arg.full_name() << "'" << desc;
-    google::protobuf::Message* deserialized_proto =
+    google::protobuf::MessageLite* deserialized_proto =
         google::protobuf::MessageFactory::generated_factory()->GetPrototype(desc)->New();
     LOG_IF(FATAL, deserialized_proto == nullptr)
         << "Unable to create deserialized proto for " << proto_arg.full_name();
@@ -168,7 +177,8 @@ class FunctionCallPreparer {
   // Use list instead of vector to preserve references even with modifications.
   // Contains pairs of lenval message pointer -> deserialized message
   // so that we can serialize the argument again after the function call.
-  std::list<std::pair<LenValStruct*, google::protobuf::Message*>> protos_to_be_destroyed_;
+  std::list<std::pair<LenValStruct*, google::protobuf::MessageLite*>>
+      protos_to_be_destroyed_;
   ffi_type* ret_type_;
   ffi_type* arg_types_[FuncCall::kArgsMax];
   const void* arg_values_[FuncCall::kArgsMax];
@@ -413,18 +423,16 @@ void ServeRequest(sandbox2::Comms* comms) {
 }  // namespace client
 }  // namespace sapi
 
-extern "C" ABSL_ATTRIBUTE_WEAK int main(int argc, char** argv) {
-  gflags::SetCommandLineOptionWithMode("userspace_coredumper", "false",
-                                       gflags::SET_FLAG_IF_DEFAULT);
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+ABSL_ATTRIBUTE_WEAK int main(int argc, char* argv[]) {
+  absl::ParseCommandLine(argc, argv);
+  absl::InitializeLog();
 
   // Note regarding the FD usage here: Parent and child seem to make use of the
   // same FD, although this is not true. During process setup `dup2()` will be
   // called to replace the FD `kSandbox2ClientCommsFD`.
   // We do not use a new comms object here as the destructor would close our FD.
-  sandbox2::Comms comms{sandbox2::Comms::kSandbox2ClientCommsFD};
-  sandbox2::ForkingClient s2client{&comms};
+  sandbox2::Comms comms(sandbox2::Comms::kDefaultConnection);
+  sandbox2::ForkingClient s2client(&comms);
 
   // Forkserver loop.
   while (true) {

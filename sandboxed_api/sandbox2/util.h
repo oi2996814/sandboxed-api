@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,26 +20,29 @@
 
 #include <sys/types.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/base/macros.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
-namespace sandbox2::util {
+namespace sandbox2 {
 
-// Converts an array of char* (terminated by a nullptr, like argv, or environ
-// arrays), to an std::vector<std::string>.
-ABSL_DEPRECATED("Use CharPtrArray(arr).ToStringVector() instead")
-void CharPtrArrToVecString(char* const* arr, std::vector<std::string>* vec);
+namespace internal {
 
-// Converts a vector of strings to a newly allocated array. The array is limited
-// by the terminating nullptr entry (like environ or argv). It must be freed by
-// the caller.
-ABSL_DEPRECATED("Use CharPtrArray class instead")
-const char** VecStringToCharPtrArr(const std::vector<std::string>& vec);
+// Magic values used to detect if the current process is running inside
+// Sandbox2.
+inline constexpr int64_t kMagicSyscallNo = 0xff000fdb;  // 4278194139
+inline constexpr int kMagicSyscallErr = 0x000000fdb;    // 4059
+
+}  // namespace internal
+
+namespace util {
+
+void DumpCoverageData();
 
 // An char ptr array limited by the terminating nullptr entry (like environ
 // or argv).
@@ -61,8 +64,19 @@ class CharPtrArray {
   std::vector<const char*> array_;
 };
 
+// Converts an array of char* (terminated by a nullptr, like argv, or environ
+// arrays), to an std::vector<std::string>.
+ABSL_DEPRECATE_AND_INLINE()
+inline void CharPtrArrToVecString(char* const* arr,
+                                  std::vector<std::string>* vec) {
+  *vec = sandbox2::util::CharPtrArray(arr).ToStringVector();
+}
+
 // Returns the program name (via /proc/self/comm) for a given PID.
 std::string GetProgName(pid_t pid);
+
+// Given a resource descriptor FD and a PID, returns link of /proc/PID/fds/FD.
+absl::StatusOr<std::string> GetResolvedFdLink(pid_t pid, uint32_t fd);
 
 // Returns the command line (via /proc/self/cmdline) for a given PID. The
 // argument separators '\0' are converted to spaces.
@@ -77,9 +91,6 @@ std::string GetProcStatusLine(int pid, const std::string& value);
 long Syscall(long sys_no,  // NOLINT
              uintptr_t a1 = 0, uintptr_t a2 = 0, uintptr_t a3 = 0,
              uintptr_t a4 = 0, uintptr_t a5 = 0, uintptr_t a6 = 0);
-
-// Recursively creates a directory, skipping segments that already exist.
-bool CreateDirRecursive(const std::string& path, mode_t mode);
 
 // Fork based on clone() which updates glibc's PID/TID caches - Based on:
 // https://chromium.googlesource.com/chromium/src/+/9eb564175dbd452196f782da2b28e3e8e79c49a5%5E!/
@@ -99,16 +110,65 @@ absl::StatusOr<int> Communicate(const std::vector<std::string>& argv,
 // Returns signal description.
 std::string GetSignalName(int signo);
 
+// Returns the socket address family as a string ("AF_INET", ...)
+std::string GetAddressFamily(int addr_family);
+
 // Returns rlimit resource name
 std::string GetRlimitName(int resource);
 
 // Returns ptrace event name
 std::string GetPtraceEventName(int event);
 
+namespace internal {
+// Reads `data`'s length of bytes from `ptr` in `pid`, returns number of bytes
+// read or an error.
+absl::StatusOr<size_t> ReadBytesFromPidWithReadv(pid_t pid, uintptr_t ptr,
+                                                 absl::Span<char> data);
+
+// Writes `data` to `ptr` in `pid`, returns number of bytes written or an error.
+absl::StatusOr<size_t> WriteBytesToPidWithWritev(pid_t pid, uintptr_t ptr,
+                                                 absl::Span<const char> data);
+
+// Reads `data`'s length of bytes from `ptr` in `pid`, returns number of bytes
+// read or an error.
+absl::StatusOr<size_t> ReadBytesFromPidWithReadvInSplitChunks(
+    pid_t pid, uintptr_t ptr, absl::Span<char> data);
+
+// Reads `data`'s length of bytes from `ptr` in `pid`, returns number of bytes
+// read or an error.
+absl::StatusOr<size_t> ReadBytesFromPidWithProcMem(pid_t pid, uintptr_t ptr,
+                                                   absl::Span<char> data);
+
+// Writes `data` to `ptr` in `pid`, returns number of bytes written or an error.
+absl::StatusOr<size_t> WriteBytesToPidWithProcMem(pid_t pid, uintptr_t ptr,
+                                                  absl::Span<const char> data);
+};  // namespace internal
+
+// Reads `data`'s length of bytes from `ptr` in `pid`, returns number of bytes
+// read or an error.
+absl::StatusOr<size_t> ReadBytesFromPidInto(pid_t pid, uintptr_t ptr,
+                                            absl::Span<char> data);
+
+// Writes `data` to `ptr` in `pid`, returns number of bytes written or an error.
+absl::StatusOr<size_t> WriteBytesToPidFrom(pid_t pid, uintptr_t remote_ptr,
+                                           absl::Span<const char> data);
+
+// Reads `size` bytes from the given `ptr` address, or returns an error.
+absl::StatusOr<std::vector<uint8_t>> ReadBytesFromPid(pid_t pid, uintptr_t ptr,
+                                                      size_t size);
+
 // Reads a path string (NUL-terminated, shorter than PATH_MAX) from another
 // process memory
 absl::StatusOr<std::string> ReadCPathFromPid(pid_t pid, uintptr_t ptr);
 
-}  // namespace sandbox2::util
+// Wrapper for execveat(2).
+int Execveat(int dirfd, const char* pathname, const char* const argv[],
+             const char* const envp[], int flags, uintptr_t extra_arg = 0);
+
+// Returns true if the current process is running inside Sandbox2.
+absl::StatusOr<bool> IsRunningInSandbox2();
+
+}  // namespace util
+}  // namespace sandbox2
 
 #endif  // SANDBOXED_API_SANDBOX2_UTIL_H_

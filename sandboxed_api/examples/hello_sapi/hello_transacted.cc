@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -66,7 +66,7 @@ class CustomHelloSandbox : public HelloSandbox {
 int main() {
   std::cout << "Calling into a sandboxee to add two numbers...\n";
 
-  sapi::BasicTransaction transaction(absl::make_unique<CustomHelloSandbox>());
+  sapi::BasicTransaction transaction(std::make_unique<CustomHelloSandbox>());
 
   absl::Status status =
       transaction.Run([](sapi::Sandbox* sandbox) -> absl::Status {

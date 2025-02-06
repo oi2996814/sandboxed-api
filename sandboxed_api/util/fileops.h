@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,6 +15,7 @@
 #ifndef SANDBOXED_API_UTIL_FILEOPS_H_
 #define SANDBOXED_API_UTIL_FILEOPS_H_
 
+#include <cstddef>
 #include <string>
 #include <utility>
 #include <vector>
@@ -89,6 +90,9 @@ bool ListDirectoryEntries(const std::string& directory,
                           std::vector<std::string>* entries,
                           std::string* error);
 
+// Recursively creates a directory, skipping segments that already exist.
+bool CreateDirectoryRecursively(const std::string& path, int mode);
+
 // Deletes the specified file or directory, including any sub-directories.
 bool DeleteRecursively(const std::string& filename);
 
@@ -100,7 +104,7 @@ bool CopyFile(const std::string& old_path, const std::string& new_path,
 
 // Makes filename absolute with respect to base. Returns an empty string on
 // failure.
-std::string MakeAbsolute(const std::string& filename, const std::string& base);
+std::string MakeAbsolute(absl::string_view filename, absl::string_view base);
 
 // Writes data to a file descriptor. The file descriptor should be blocking.
 // Returns true on success.

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,10 +17,11 @@
 #include <unistd.h>
 
 #include <string>
+#include <vector>
 
-#include <glog/logging.h>
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/log/log.h"
 #include "sandboxed_api/sandbox2/util.h"
 #include "sandboxed_api/testing.h"
 #include "sandboxed_api/util/status_matchers.h"
@@ -30,13 +31,13 @@ namespace {
 
 using ::sapi::GetTestSourcePath;
 using ::testing::Eq;
-using ::testing::StrEq;
+using ::testing::HasSubstr;
 
 class CRC4Test : public ::testing::Test {
  protected:
   void SetUp() override {
     path_ = GetTestSourcePath("sandbox2/examples/crc4/crc4sandbox");
-    util::CharPtrArrToVecString(environ, &env_);
+    env_ = util::CharPtrArray(environ).ToStringVector();
   }
 
   std::string path_;
@@ -51,7 +52,7 @@ TEST_F(CRC4Test, TestNormalOperation) {
       int exit_code,
       util::Communicate({path_, "-input", "ABCD"}, env_, &output));
 
-  EXPECT_THAT(output, StrEq("0x44434241\n"));
+  EXPECT_THAT(output, HasSubstr("0x44434241\n"));
   EXPECT_THAT(exit_code, Eq(0));
 }
 

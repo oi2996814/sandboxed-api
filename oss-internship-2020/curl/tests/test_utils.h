@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,7 @@
 #include "../sandbox.h"      // NOLINT(build/include)
 #include "curl_sapi.sapi.h"  // NOLINT(build/include)
 #include "gtest/gtest.h"
-#include "sandboxed_api/util/flag.h"
+#include "absl/flags/flag.h"
 #include "absl/status/statusor.h"
 #include "sandboxed_api/util/status_matchers.h"
 

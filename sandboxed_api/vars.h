@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,6 +15,7 @@
 #ifndef SANDBOXED_API_VARS_H_
 #define SANDBOXED_API_VARS_H_
 
+// IWYU pragma: begin_exports
 #include "sandboxed_api/var_array.h"
 #include "sandboxed_api/var_int.h"
 #include "sandboxed_api/var_lenval.h"
@@ -22,5 +23,6 @@
 #include "sandboxed_api/var_ptr.h"
 #include "sandboxed_api/var_struct.h"
 #include "sandboxed_api/var_void.h"
+// IWYU pragma: end_exports
 
 #endif  // SANDBOXED_API_VARS_H_

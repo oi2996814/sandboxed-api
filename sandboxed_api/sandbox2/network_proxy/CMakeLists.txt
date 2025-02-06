@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,12 +18,13 @@ add_library(sandbox2_network_proxy_server ${SAPI_LIB_TYPE}
   server.h
 )
 add_library(sandbox2::network_proxy_server ALIAS sandbox2_network_proxy_server)
-target_link_libraries(sandbox2_network_proxy_server PRIVATE
-  absl::memory
-  sandbox2::comms
-  sapi::fileops
-  sandbox2::network_proxy_filtering
-  sapi::base
+target_link_libraries(sandbox2_network_proxy_server
+ PRIVATE absl::status
+         sapi::fileops
+         sapi::base
+ PUBLIC absl::any_invocable
+        sandbox2::comms
+        sandbox2::network_proxy_filtering
 )
 
 # sandboxed_api/sandbox2/network_proxy:filtering
@@ -33,13 +34,12 @@ add_library(sandbox2_network_proxy_filtering ${SAPI_LIB_TYPE}
 )
 add_library(sandbox2::network_proxy_filtering ALIAS sandbox2_network_proxy_filtering)
 target_link_libraries(sandbox2_network_proxy_filtering
-  PRIVATE absl::memory
-          absl::status
+  PRIVATE absl::status
           sandbox2::comms
           sapi::fileops
           sapi::base
   PUBLIC absl::statusor
-         glog::glog
+         absl::log
          sapi::strerror
          sapi::status
 )
@@ -50,18 +50,40 @@ add_library(sandbox2_network_proxy_client ${SAPI_LIB_TYPE}
   client.h
 )
 add_library(sandbox2::network_proxy_client ALIAS sandbox2_network_proxy_client)
-target_link_libraries(sandbox2_network_proxy_client PRIVATE
-  absl::strings
-  absl::synchronization
-  glog::glog
-  sandbox2::comms
-  sapi::config
-  sapi::strerror
-  sapi::base
-  sapi::status
+target_link_libraries(sandbox2_network_proxy_client
+ PUBLIC absl::core_headers
+        absl::status
+        absl::statusor
+        absl::synchronization
+        sandbox2::comms
+        sandbox2::syscall_trap
+        sapi::fileops
+ PRIVATE absl::strings
+         absl::log
+         sapi::base
+         sapi::status
 )
 
-if(SAPI_ENABLE_TESTS)
+# sandboxed_api/sandbox2/network_proxy:testing
+add_library(sandbox2_network_proxy_testing ${SAPI_LIB_TYPE}
+  testing.cc
+  testing.h
+)
+add_library(sandbox2::network_proxy_testing ALIAS sandbox2_network_proxy_testing)
+target_link_libraries(sandbox2_network_proxy_testing
+ PUBLIC sapi::fileops
+        sapi::thread
+        absl::statusor
+ PRIVATE absl::check
+         absl::core_headers
+         absl::memory
+         absl::status
+         absl::strings
+         sapi::status
+         sapi::base
+)
+
+if(BUILD_TESTING AND SAPI_BUILD_TESTING)
   # sandboxed_api/sandbox2/network_proxy:filtering_test
   add_executable(sandbox2_filtering_test
     filtering_test.cc
@@ -70,6 +92,7 @@ if(SAPI_ENABLE_TESTS)
     OUTPUT_NAME filtering_test
   )
   target_link_libraries(sandbox2_filtering_test PRIVATE
+    absl::check
     absl::strings
     sandbox2::network_proxy_filtering
     sapi::testing

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,18 +16,20 @@
 #define SANDBOXED_API_VAR_ARRAY_H_
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
-#include <memory>
+#include <string>
+#include <type_traits>
 
-#include <glog/logging.h>
-#include "absl/base/macros.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "sandboxed_api/rpcchannel.h"
 #include "sandboxed_api/util/status_macros.h"
 #include "sandboxed_api/var_abstract.h"
-#include "sandboxed_api/var_ptr.h"
+#include "sandboxed_api/var_type.h"
 
 namespace sapi::v {
 
@@ -51,6 +53,20 @@ class Array : public Var {
     CHECK(storage != nullptr);
     SetLocal(storage);
     arr_ = static_cast<T*>(storage);
+  }
+
+  Array(Array&& other) { *this = std::move(other); }
+  Array& operator=(Array&& other) {
+    if (this != &other) {
+      Var::operator=(std::move(other));
+      using std::swap;
+      swap(arr_, other.arr_);
+      swap(nelem_, other.nelem_);
+      swap(total_size_, other.total_size_);
+      swap(buffer_owned_, other.buffer_owned_);
+      other.buffer_owned_ = false;  // If it was owned before, we own it now.
+    }
+    return *this;
   }
 
   virtual ~Array() {
@@ -128,10 +144,10 @@ class Array : public Var {
   }
 
   // Pointer to the data, owned by the object if buffer_owned_ is 'true'.
-  T* arr_;
-  size_t nelem_;       // Number of elements
-  size_t total_size_;  // Total size in bytes
-  bool buffer_owned_;  // Whether we own the buffer
+  T* arr_ = nullptr;
+  size_t nelem_ = 0;           // Number of elements
+  size_t total_size_ = 0;      // Total size in bytes
+  bool buffer_owned_ = false;  // Whether we own the buffer
 };
 
 // Specialized Array class for representing NUL-terminated C-style strings. The

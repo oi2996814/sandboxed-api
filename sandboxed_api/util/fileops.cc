@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,10 +19,17 @@
 #include <sys/stat.h>  // stat64
 #include <unistd.h>
 
+#include <cerrno>
+#include <cstdlib>
 #include <fstream>
+#include <ios>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "sandboxed_api/util/strerror.h"
 
@@ -63,19 +70,17 @@ std::string GetCWD() {
 
 // Makes a path absolute with respect to base. Returns true on success. Result
 // may be an alias of base or filename.
-bool MakeAbsolute(const std::string& filename, const std::string& base,
+bool MakeAbsolute(absl::string_view filename, absl::string_view base,
                   std::string* result) {
   if (filename.empty()) {
     return false;
   }
   if (filename[0] == '/') {
-    if (result != &filename) {
-      *result = filename;
-    }
+    *result = std::string(filename);
     return true;
   }
 
-  std::string actual_base = base;
+  std::string actual_base = std::string(base);
   if (actual_base.empty() && !GetCWD(&actual_base)) {
     return false;
   }
@@ -89,12 +94,12 @@ bool MakeAbsolute(const std::string& filename, const std::string& base,
       *result = actual_base;
     }
   } else {
-    *result = actual_base + "/" + filename;
+    *result = absl::StrCat(actual_base, "/", filename);
   }
   return true;
 }
 
-std::string MakeAbsolute(const std::string& filename, const std::string& base) {
+std::string MakeAbsolute(absl::string_view filename, absl::string_view base) {
   std::string result;
   return !MakeAbsolute(filename, base, &result) ? "" : result;
 }
@@ -205,16 +210,9 @@ bool ListDirectoryEntries(const std::string& directory,
     return false;
   }
 
-  struct dirent64* entry{};
   errno = 0;
-  int bufferlen =
-      std::max<int>(offsetof(struct dirent64, d_name) +
-                        pathconf(directory.c_str(), _PC_NAME_MAX) + 1,
-                    sizeof(struct dirent64));
-  std::unique_ptr<struct dirent64, void (*)(struct dirent64*)> dirent_buffer{
-      static_cast<struct dirent64*>(malloc(bufferlen)),
-      [](struct dirent64* p) { free(p); }};
-  while (readdir64_r(dir.get(), dirent_buffer.get(), &entry) == 0 && entry) {
+  struct dirent* entry;
+  while ((entry = readdir(dir.get())) != nullptr) {
     const std::string name(entry->d_name);
     if (name != "." && name != "..") {
       entries->push_back(name);
@@ -225,6 +223,30 @@ bool ListDirectoryEntries(const std::string& directory,
     return false;
   }
   return true;
+}
+
+bool CreateDirectoryRecursively(const std::string& path, int mode) {
+  if (mkdir(path.c_str(), mode) == 0 || errno == EEXIST) {
+    return true;
+  }
+
+  // We couldn't create the dir for reasons we can't handle.
+  if (errno != ENOENT) {
+    return false;
+  }
+
+  // The ENOENT case, the parent directory doesn't exist yet.
+  // Let's create it.
+  const std::string dir = StripBasename(path);
+  if (dir == "/" || dir.empty()) {
+    return false;
+  }
+  if (!CreateDirectoryRecursively(dir, mode)) {
+    return false;
+  }
+
+  // Now the parent dir exists, retry creating the directory.
+  return mkdir(path.c_str(), mode) == 0;
 }
 
 bool DeleteRecursively(const std::string& filename) {
@@ -279,6 +301,7 @@ bool CopyFile(const std::string& old_path, const std::string& new_path,
     std::ofstream output(new_path,
                          std::ios_base::trunc | std::ios_base::binary);
     output << input.rdbuf();
+    output.close();
     if (!input || !output) {
       return false;
     }

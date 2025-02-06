@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,23 +13,25 @@
 // limitations under the License.
 
 #include <fcntl.h>
-#include <linux/filter.h>
-#include <sys/resource.h>
 #include <syscall.h>
+#include <unistd.h>
 
-#include <cstddef>
-#include <cstdint>
-#include <cstdio>
+#include <cerrno>
 #include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
-#include "sandboxed_api/util/flag.h"
-#include "absl/memory/memory.h"
-#include "sandboxed_api/sandbox2/comms.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/base/log_severity.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "sandboxed_api/sandbox2/executor.h"
 #include "sandboxed_api/sandbox2/limits.h"
 #include "sandboxed_api/sandbox2/policy.h"
@@ -39,10 +41,8 @@
 #include "sandboxed_api/sandbox2/util/bpf_helper.h"
 #include "sandboxed_api/util/runfiles.h"
 
-using std::string;
-
-ABSL_FLAG(string, input, "", "Input file");
-ABSL_FLAG(string, output, "", "Output file");
+ABSL_FLAG(std::string, input, "", "Input file");
+ABSL_FLAG(std::string, output, "", "Output file");
 ABSL_FLAG(bool, decompress, false, "Decompress instead of compress.");
 
 namespace {
@@ -54,7 +54,7 @@ std::unique_ptr<sandbox2::Policy> GetPolicy() {
       // Allow write on STDOUT / STDERR.
       .AddPolicyOnSyscall(__NR_write,
                           {ARG_32(0), JEQ32(1, ALLOW), JEQ32(2, ALLOW)})
-      .AllowSyscall(__NR_fstat)
+      .AllowStat()
       .AllowStaticStartup()
       .AllowSystemMalloc()
       .AllowExit()
@@ -71,9 +71,10 @@ std::unique_ptr<sandbox2::Policy> GetPolicy() {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+int main(int argc, char* argv[]) {
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  absl::ParseCommandLine(argc, argv);
+  absl::InitializeLog();
 
   if (absl::GetFlag(FLAGS_input).empty()) {
     LOG(ERROR) << "Parameter --input required.";
@@ -93,7 +94,7 @@ int main(int argc, char** argv) {
     args.push_back("-d");
   }
   std::vector<std::string> envs = {};
-  auto executor = absl::make_unique<sandbox2::Executor>(path, args, envs);
+  auto executor = std::make_unique<sandbox2::Executor>(path, args, envs);
 
   executor
       // Kill sandboxed processes with a signal (SIGXFSZ) if it writes more than

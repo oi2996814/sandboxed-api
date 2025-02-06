@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,19 +17,28 @@
 #include "sandboxed_api/sandbox2/executor.h"
 
 #include <fcntl.h>
-#include <libgen.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <climits>
-#include <cstddef>
+#include <algorithm>
+#include <cerrno>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
-#include "absl/memory/memory.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/fork_client.h"
 #include "sandboxed_api/sandbox2/forkserver.pb.h"
 #include "sandboxed_api/sandbox2/global_forkclient.h"
 #include "sandboxed_api/sandbox2/ipc.h"
+#include "sandboxed_api/sandbox2/namespace.h"
 #include "sandboxed_api/sandbox2/util.h"
 #include "sandboxed_api/util/fileops.h"
 
@@ -37,23 +46,58 @@ namespace sandbox2 {
 
 namespace file_util = ::sapi::file_util;
 
+namespace {
+void DisableCompressStackDepot(ForkRequest& request) {
+  auto disable_compress_stack_depot = [&request](absl::string_view sanitizer) {
+    auto prefix = absl::StrCat(sanitizer, "_OPTIONS=");
+    auto it = std::find_if(request.mutable_envs()->begin(),
+                           request.mutable_envs()->end(),
+                           [&prefix](const std::string& env) {
+                             return absl::StartsWith(env, prefix);
+                           });
+    constexpr absl::string_view option = "compress_stack_depot=0";
+    if (it != request.mutable_envs()->end()) {
+      // If it's already there, the last value will be used.
+      absl::StrAppend(&*it, ":", option);
+      return;
+    }
+    request.add_envs(absl::StrCat(prefix, option));
+  };
+  if constexpr (sapi::sanitizers::IsASan()) {
+    disable_compress_stack_depot("ASAN");
+  }
+  if constexpr (sapi::sanitizers::IsMSan()) {
+    disable_compress_stack_depot("MSAN");
+  }
+  if constexpr (sapi::sanitizers::IsLSan()) {
+    disable_compress_stack_depot("LSAN");
+  }
+  if constexpr (sapi::sanitizers::IsHwASan()) {
+    disable_compress_stack_depot("HWSAN");
+  }
+  if constexpr (sapi::sanitizers::IsTSan()) {
+    disable_compress_stack_depot("TSAN");
+  }
+}
+}  // namespace
+
 std::vector<std::string> Executor::CopyEnviron() {
   return util::CharPtrArray(environ).ToStringVector();
 }
 
-pid_t Executor::StartSubProcess(int32_t clone_flags, const Namespace* ns,
-                                const std::vector<int>& caps,
-                                pid_t* init_pid_out) {
+absl::StatusOr<SandboxeeProcess> Executor::StartSubProcess(
+    int32_t clone_flags, const Namespace* ns, bool allow_speculation,
+    MonitorType type) {
   if (started_) {
-    LOG(ERROR) << "This executor has already been started";
-    return -1;
+    return absl::FailedPreconditionError(
+        "This executor has already been started");
   }
 
   if (!path_.empty()) {
     exec_fd_ = file_util::fileops::FDCloser(open(path_.c_str(), O_PATH));
     if (exec_fd_.get() < 0) {
-      PLOG(ERROR) << "Could not open file " << path_;
-      return -1;
+      return absl::ErrnoToStatus(errno,
+                                 absl::StrCat("Could not open file ", path_));
     }
   }
 
@@ -78,14 +122,17 @@ pid_t Executor::StartSubProcess(int32_t clone_flags, const Namespace* ns,
                                   file_util::fileops::StripBasename(path_)));
   }
 
+  // Disable optimization to avoid related syscalls.
+  if constexpr (sapi::sanitizers::IsAny()) {
+    DisableCompressStackDepot(request);
+  }
+
   // If neither the path, nor exec_fd is specified, just assume that we need to
   // send a fork request.
   //
   // Otherwise, it's either sandboxing pre- or post-execve with the global
   // Fork-Server.
-  if (libunwind_sbox_for_pid_ != 0) {
-    request.set_mode(FORKSERVER_FORK_JOIN_SANDBOX_UNWIND);
-  } else if (exec_fd_.get() == -1) {
+  if (exec_fd_.get() == -1) {
     request.set_mode(FORKSERVER_FORK);
   } else if (enable_sandboxing_pre_execve_) {
     request.set_mode(FORKSERVER_FORK_EXECVE_SANDBOX);
@@ -94,49 +141,25 @@ pid_t Executor::StartSubProcess(int32_t clone_flags, const Namespace* ns,
   }
 
   if (ns) {
-    clone_flags |= ns->GetCloneFlags();
+    clone_flags |= ns->clone_flags();
+    request.set_netns_mode(ns->netns_config());
     *request.mutable_mount_tree() = ns->mounts().GetMountTree();
     request.set_hostname(ns->hostname());
+    request.set_allow_mount_propagation(ns->allow_mount_propagation());
   }
 
   request.set_clone_flags(clone_flags);
+  request.set_monitor_type(type);
+  request.set_allow_speculation(allow_speculation);
 
-  for (auto cap : caps) {
-    request.add_capabilities(cap);
-  }
+  SandboxeeProcess process;
 
-  file_util::fileops::FDCloser ns_fd;
-  if (libunwind_sbox_for_pid_ != 0) {
-    const std::string ns_path =
-        absl::StrCat("/proc/", libunwind_sbox_for_pid_, "/ns/user");
-    ns_fd = file_util::fileops::FDCloser(open(ns_path.c_str(), O_RDONLY));
-    PCHECK(ns_fd.get() != -1)
-        << "Could not open user ns fd (" << ns_path << ")";
-  }
-
-  pid_t init_pid = -1;
-
-  pid_t sandboxee_pid;
   if (fork_client_) {
-    sandboxee_pid = fork_client_->SendRequest(request, exec_fd_.get(),
-                                              client_comms_fd_.get(),
-                                              ns_fd.get(), &init_pid);
+    process = fork_client_->SendRequest(request, exec_fd_.get(),
+                                        client_comms_fd_.get());
   } else {
-    sandboxee_pid = GlobalForkClient::SendRequest(request, exec_fd_.get(),
-                                                  client_comms_fd_.get(),
-                                                  ns_fd.get(), &init_pid);
-  }
-
-  if (init_pid < 0) {
-    LOG(ERROR) << "Could not obtain init PID";
-  } else if (init_pid == 0 && request.clone_flags() & CLONE_NEWPID) {
-    LOG(FATAL)
-        << "No init process was spawned even though a PID NS was created, "
-        << "potential logic bug";
-  }
-
-  if (init_pid_out) {
-    *init_pid_out = init_pid;
+    process = GlobalForkClient::SendRequest(request, exec_fd_.get(),
+                                            client_comms_fd_.get());
   }
 
   started_ = true;
@@ -144,19 +167,19 @@ pid_t Executor::StartSubProcess(int32_t clone_flags, const Namespace* ns,
   client_comms_fd_.Close();
   exec_fd_.Close();
 
-  VLOG(1) << "StartSubProcess returned with: " << sandboxee_pid;
-  return sandboxee_pid;
+  VLOG(1) << "StartSubProcess returned with: " << process.main_pid;
+  return process;
 }
 
 std::unique_ptr<ForkClient> Executor::StartForkServer() {
   // This flag is set explicitly to 'true' during object instantiation, and
   // custom fork-servers should never be sandboxed.
   set_enable_sandbox_before_exec(false);
-  pid_t pid = StartSubProcess(0);
-  if (pid == -1) {
+  absl::StatusOr<SandboxeeProcess> process = StartSubProcess(0);
+  if (!process.ok()) {
     return nullptr;
   }
-  return absl::make_unique<ForkClient>(pid, ipc_.comms());
+  return std::make_unique<ForkClient>(process->main_pid, ipc_.comms());
 }
 
 void Executor::SetUpServerSideCommsFd() {

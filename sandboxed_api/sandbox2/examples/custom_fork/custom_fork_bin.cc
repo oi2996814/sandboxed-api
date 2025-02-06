@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,11 +16,14 @@
 // sandbox2, and which uses a built-in fork-server to spawn new sandboxees
 // (instead of doing fork/execve via the Fork-Server).
 
-#include <sys/types.h>
+#include <unistd.h>
 
 #include <cstdint>
 
-#include "sandboxed_api/util/flag.h"
+#include "absl/base/log_severity.h"
+#include "absl/flags/parse.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/forkingclient.h"
 #include "sandboxed_api/util/raw_logging.h"
@@ -37,14 +40,15 @@ static int SandboxeeFunction(sandbox2::Comms* comms) {
   return i;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
+  absl::ParseCommandLine(argc, argv);
+
   // Writing to stderr limits the number of invoked syscalls.
-  gflags::SetCommandLineOptionWithMode("logtostderr", "true",
-                                       gflags::SET_FLAG_IF_DEFAULT);
-  gflags::ParseCommandLineFlags(&argc, &argv, false);
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  absl::InitializeLog();
 
   // Instantiate Comms channel with the parent Executor
-  sandbox2::Comms comms(sandbox2::Comms::kSandbox2ClientCommsFD);
+  sandbox2::Comms comms(sandbox2::Comms::kDefaultConnection);
   sandbox2::ForkingClient s2client(&comms);
 
   for (;;) {

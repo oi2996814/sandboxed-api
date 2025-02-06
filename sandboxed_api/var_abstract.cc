@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,18 +16,35 @@
 
 #include "sandboxed_api/var_abstract.h"
 
-#include <sys/uio.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <utility>
 
-#include <glog/logging.h>
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "sandboxed_api/rpcchannel.h"
-#include "sandboxed_api/sandbox2/comms.h"
+#include "sandboxed_api/sandbox2/util.h"
 #include "sandboxed_api/util/status_macros.h"
 #include "sandboxed_api/var_ptr.h"
 
 namespace sapi::v {
+
+Var& Var::operator=(Var&& other) {
+  if (this != &other) {
+    using std::swap;
+    swap(local_, other.local_);
+    swap(remote_, other.remote_);
+    swap(free_rpc_channel_, other.free_rpc_channel_);
+    swap(ptr_none_, other.ptr_none_);
+    swap(ptr_both_, other.ptr_both_);
+    swap(ptr_before_, other.ptr_before_);
+    swap(ptr_after_, other.ptr_after_);
+  }
+  return *this;
+}
 
 Var::~Var() {
   if (free_rpc_channel_ && GetRemote()) {
@@ -95,27 +112,18 @@ absl::Status Var::TransferToSandboxee(RPCChannel* rpc_channel, pid_t pid) {
           << ", size: " << GetSize();
 
   if (remote_ == nullptr) {
-    LOG(WARNING) << "Object: " << GetType() << " has no remote object set";
+    LOG(WARNING) << "Object: " << GetTypeString()
+                 << " has no remote object set";
     return absl::FailedPreconditionError(
-        absl::StrCat("Object: ", GetType(), " has no remote object set"));
+        absl::StrCat("Object: ", GetTypeString(), " has no remote object set"));
   }
 
-  struct iovec local = {
-      .iov_base = GetLocal(),
-      .iov_len = GetSize(),
-  };
-  struct iovec remote = {
-      .iov_base = GetRemote(),
-      .iov_len = GetSize(),
-  };
+  SAPI_ASSIGN_OR_RETURN(
+      size_t ret,
+      sandbox2::util::WriteBytesToPidFrom(
+          pid, reinterpret_cast<uintptr_t>(GetRemote()),
+          absl::MakeSpan(reinterpret_cast<char*>(GetLocal()), GetSize())));
 
-  ssize_t ret = process_vm_writev(pid, &local, 1, &remote, 1, 0);
-  if (ret == -1) {
-    PLOG(WARNING) << "process_vm_writev(pid: " << pid
-                  << " laddr: " << GetLocal() << " raddr: " << GetRemote()
-                  << " size: " << GetSize() << ")";
-    return absl::UnavailableError("process_vm_writev failed");
-  }
   if (ret != GetSize()) {
     LOG(WARNING) << "process_vm_writev(pid: " << pid << " laddr: " << GetLocal()
                  << " raddr: " << GetRemote() << " size: " << GetSize() << ")"
@@ -133,24 +141,14 @@ absl::Status Var::TransferFromSandboxee(RPCChannel* rpc_channel, pid_t pid) {
 
   if (local_ == nullptr) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Object: ", GetType(), " has no local storage set"));
+        absl::StrCat("Object: ", GetTypeString(), " has no local storage set"));
   }
 
-  struct iovec local = {
-      .iov_base = GetLocal(),
-      .iov_len = GetSize(),
-  };
-  struct iovec remote = {
-      .iov_base = GetRemote(),
-      .iov_len = GetSize(),
-  };
-
-  ssize_t ret = process_vm_readv(pid, &local, 1, &remote, 1, 0);
-  if (ret == -1) {
-    PLOG(WARNING) << "process_vm_readv(pid: " << pid << " laddr: " << GetLocal()
-                  << " raddr: " << GetRemote() << " size: " << GetSize() << ")";
-    return absl::UnavailableError("process_vm_readv failed");
-  }
+  SAPI_ASSIGN_OR_RETURN(
+      size_t ret,
+      sandbox2::util::ReadBytesFromPidInto(
+          pid, reinterpret_cast<uintptr_t>(GetRemote()),
+          absl::MakeSpan(reinterpret_cast<char*>(GetLocal()), GetSize())));
   if (ret != GetSize()) {
     LOG(WARNING) << "process_vm_readv(pid: " << pid << " laddr: " << GetLocal()
                  << " raddr: " << GetRemote() << " size: " << GetSize() << ")"

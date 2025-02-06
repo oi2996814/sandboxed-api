@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,21 +14,51 @@
 
 // A proto for the sandbox2::Forkserver class
 
-syntax = "proto2";
+syntax = "proto3";
 
 package sandbox2;
 
-import "sandboxed_api/sandbox2/mounttree.proto";
+import "sandboxed_api/sandbox2/mount_tree.proto";
 
 enum Mode {
+  // Default value
+  FORKSERVER_FORK_UNSPECIFIED = 0;
   // Fork, execve and sandbox
   FORKSERVER_FORK_EXECVE_SANDBOX = 1;
   // Fork and execve, but no sandboxing
   FORKSERVER_FORK_EXECVE = 2;
   // Just fork
   FORKSERVER_FORK = 3;
-  // Special internal case: join a user namespace prior to unwinding
-  FORKSERVER_FORK_JOIN_SANDBOX_UNWIND = 4;
+  reserved 4;
+}
+
+enum MonitorType {
+  // Default value
+  FORKSERVER_MONITOR_UNSPECIFIED = 0;
+  // Ptrace based monitor
+  FORKSERVER_MONITOR_PTRACE = 1;
+  // Seccomp_unotify based monitor
+  FORKSERVER_MONITOR_UNOTIFY = 2;
+}
+
+// Enum representing the net_ns mode, used by policybuilder, forkserver, and
+// executor.
+enum NetNsMode {
+  NETNS_MODE_UNSPECIFIED = 0;
+
+  // Create a new netns for each sandbox (default).
+  NETNS_MODE_PER_SANDBOXEE = 1;
+
+  // Do not create a netns.
+  // This will disable the network namespace isolation
+  // from the host and expose its network interfaces to the sandboxee (generally
+  // granting internet access).
+  // Networking syscalls must be allowed in the policy in order to use the
+  // network.
+  NETNS_MODE_NONE = 2;
+
+  // Create a netns shared by all sandboxees started by a forkserver.
+  NETNS_MODE_SHARED_PER_FORKSERVER = 3;
 }
 
 message ForkRequest {
@@ -38,17 +68,28 @@ message ForkRequest {
   repeated bytes envs = 2;
 
   // How to interpret the request
-  required Mode mode = 3;
+  optional Mode mode = 3;
 
   // Clone flags for the new process
-  optional int32 clone_flags = 4 [default = 0];
+  optional int32 clone_flags = 4;
 
-  // Capabilities to keep when starting the sandboxee
-  repeated int32 capabilities = 5;
+  reserved 5;
 
   // The mount tree used for namespace initialization
   optional MountTree mount_tree = 6;
 
   // Hostname in the network namespace
   optional bytes hostname = 7;
+
+  // Changes mount propagation from MS_PRIVATE to MS_SLAVE if set
+  optional bool allow_mount_propagation = 8;
+
+  // Monitor type used by the sandbox
+  optional MonitorType monitor_type = 9;
+
+  // Whether to allow speculative execution inside the sandboxee
+  optional bool allow_speculation = 10;
+
+  // Net namespace mode
+  optional NetNsMode netns_mode = 11;
 }

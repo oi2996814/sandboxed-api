@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,36 +14,20 @@
 
 #include "sandboxed_api/util/fileops.h"
 
-#include <dirent.h>
-#include <fcntl.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/un.h>
 #include <unistd.h>
 
-#include <cstdio>
-#include <memory>
+#include <algorithm>
+#include <cerrno>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 #include "sandboxed_api/testing.h"
 #include "sandboxed_api/util/file_helpers.h"
 #include "sandboxed_api/util/status_matchers.h"
-
-using sapi::IsOk;
-using testing::Eq;
-using testing::IsEmpty;
-using testing::IsFalse;
-using testing::IsTrue;
-using testing::Ne;
-using testing::SizeIs;
-using testing::StrEq;
 
 namespace sapi::file_util {
 
@@ -54,6 +38,15 @@ bool RemoveLastPathComponent(const std::string& file, std::string* output);
 }  // namespace fileops
 
 namespace {
+
+using ::sapi::IsOk;
+using ::testing::Eq;
+using ::testing::IsEmpty;
+using ::testing::IsFalse;
+using ::testing::IsTrue;
+using ::testing::Ne;
+using ::testing::SizeIs;
+using ::testing::StrEq;
 
 class FileOpsTest : public testing::Test {
  protected:
@@ -330,6 +323,12 @@ void SetupDirectory() {
   ASSERT_THAT(file::SetContents("foo/bar/baz/foo", "", file::Defaults()),
               IsOk());
   ASSERT_THAT(chmod("foo/bar/baz/foo", 0644), Eq(0));
+}
+
+TEST_F(FileOpsTest, CreateDirectoryRecursivelyTest) {
+  constexpr char kTestDir[] = "a/b/c";
+  EXPECT_THAT(fileops::CreateDirectoryRecursively(kTestDir, 0700), IsTrue());
+  EXPECT_THAT(fileops::CreateDirectoryRecursively(kTestDir, 0700), IsTrue());
 }
 
 TEST_F(FileOpsTest, DeleteRecursivelyTest) {

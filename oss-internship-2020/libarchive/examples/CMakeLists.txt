@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,7 +19,7 @@ add_library(sapi_minitar_lib STATIC
 )
 
 target_link_libraries(sapi_minitar_lib PUBLIC
-  glog::glog
+  absl::log
   libarchive_sapi
   sandbox2::executor
   sapi::fileops

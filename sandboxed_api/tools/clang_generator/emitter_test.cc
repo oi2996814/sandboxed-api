@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,13 +15,16 @@
 #include "sandboxed_api/tools/clang_generator/emitter.h"
 
 #include <initializer_list>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/memory/memory.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "sandboxed_api/testing.h"
+#include "sandboxed_api/tools/clang_generator/emitter_base.h"
 #include "sandboxed_api/tools/clang_generator/frontend_action_test_util.h"
 #include "sandboxed_api/tools/clang_generator/generator.h"
 #include "sandboxed_api/util/status_matchers.h"
@@ -29,6 +32,8 @@
 namespace sapi {
 namespace {
 
+using ::testing::ElementsAre;
+using ::testing::IsEmpty;
 using ::testing::MatchesRegex;
 using ::testing::SizeIs;
 using ::testing::StrEq;
@@ -36,25 +41,375 @@ using ::testing::StrNe;
 
 class EmitterForTesting : public Emitter {
  public:
-  using Emitter::functions_;
+  std::vector<std::string> SpellingsForNS(const std::string& ns_name) {
+    std::vector<std::string> result;
+    for (const RenderedType* rt : rendered_types_ordered_) {
+      if (rt->ns_name == ns_name) {
+        result.push_back(rt->spelling);
+      }
+    }
+    return result;
+  }
+
+  const std::vector<std::string>& GetRenderedFunctions() {
+    return rendered_functions_ordered_;
+  }
 };
 
 class EmitterTest : public FrontendActionTest {};
 
 TEST_F(EmitterTest, BasicFunctionality) {
   GeneratorOptions options;
-  options.out_file = "input.h";
   options.set_function_names<std::initializer_list<std::string>>(
       {"ExposedFunction"});
 
   EmitterForTesting emitter;
-  RunFrontendAction(R"(extern "C" void ExposedFunction() {})",
-                    absl::make_unique<GeneratorAction>(emitter, options));
-
-  EXPECT_THAT(emitter.functions_, SizeIs(1));
+  ASSERT_THAT(
+      RunFrontendAction(R"(extern "C" void ExposedFunction() {})",
+                        std::make_unique<GeneratorAction>(emitter, options)),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), SizeIs(1));
 
   absl::StatusOr<std::string> header = emitter.EmitHeader(options);
   EXPECT_THAT(header, IsOk());
+}
+
+TEST_F(EmitterTest, RelatedTypes) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(namespace std {
+             using size_t = unsigned long;
+             }  // namespace std
+             using std::size_t;
+             typedef enum { kRed, kGreen, kBlue } Color;
+             struct Channel {
+               Color color;
+               size_t width;
+               size_t height;
+             };
+             extern "C" void Colorize(Channel* chan);
+
+             typedef struct { int member; } MyStruct;
+             extern "C" void Structize(MyStruct* s);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), SizeIs(2));
+
+  // Types from "std" should be skipped
+  EXPECT_THAT(emitter.SpellingsForNS("std"), IsEmpty());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("typedef enum { kRed, kGreen, kBlue } Color",
+                          "struct Channel {"
+                          " Color color;"
+                          " size_t width;"
+                          " size_t height; }",
+                          "typedef struct { int member; } MyStruct"));
+}
+
+TEST_F(EmitterTest, CollectFunctionPointer) {
+  EmitterForTesting emitter;
+  EXPECT_THAT(
+      RunFrontendAction(
+          R"(typedef void (callback_t)(void*);
+             struct HandlerData {
+               int member;
+               callback_t* cb;
+             };
+             extern "C" int Structize(HandlerData*);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), SizeIs(1));
+
+  EXPECT_THAT(
+      UglifyAll(emitter.SpellingsForNS("")),
+      ElementsAre("typedef void (callback_t)(void *)",
+                  "struct HandlerData { int member; callback_t *cb; }"));
+}
+
+TEST_F(EmitterTest, TypedefNames) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(typedef enum { kNone, kSome } E;
+             struct A { E member; };
+             typedef struct { int member; } B;
+             typedef struct tagC { int member; } C;
+             extern "C" void Colorize(A*, B*, C*);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(
+      UglifyAll(emitter.SpellingsForNS("")),
+      ElementsAre("typedef enum { kNone, kSome } E", "struct A { E member; }",
+                  "typedef struct { int member; } B",
+                  "struct tagC { int member; }", "typedef struct tagC C"));
+}
+
+TEST_F(EmitterTest, TypedefAnonymousWithFieldStructure) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(struct A { int number; };
+             typedef struct { A member; } B;
+             extern "C" void Foo(B*);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("struct A { int number; }",
+                          "typedef struct { A member; } B"));
+}
+
+TEST_F(EmitterTest, NamedEnumWithoutTypedef) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(enum Color { kRed, kGreen, kBlue };
+             typedef struct { enum Color member; } B;
+             extern "C" void Foo(B*);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("enum Color { kRed, kGreen, kBlue }",
+                          "typedef struct { enum Color member; } B"));
+}
+
+TEST_F(EmitterTest, NestedStruct) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(struct A {
+               struct B { int number; };
+               B b;
+               int data;
+             };
+             extern "C" void Structize(A* s);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("struct A {"
+                          " struct B { int number; };"
+                          " B b;"
+                          " int data; }"));
+}
+
+TEST_F(EmitterTest, NestedAnonymousStruct) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(struct A {
+               struct { int number; } b;
+               int data;
+             };
+             extern "C" void Structize(A* s);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("struct A {"
+                          " struct { int number; } b;"
+                          " int data; }"));
+}
+
+TEST_F(EmitterTest, ParentNotCollected) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(struct A {
+               struct B { int number; };
+               B b;
+               int data;
+             };
+             extern "C" void Structize(A::B* s);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("struct A {"
+                          " struct B { int number; };"
+                          " B b;"
+                          " int data; }"));
+}
+
+TEST_F(EmitterTest, StructForwardDecl) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(struct A;
+             extern "C" void UsingForwardDeclaredStruct(A* s);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")), ElementsAre("struct A"));
+}
+
+TEST_F(EmitterTest, AggregateStructWithDefaultedMembers) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(struct A {
+               int a = 0;
+               int b = 42;
+             };
+             extern "C" void AggregateStruct(A* s);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("struct A {"
+                          " int a = 0;"
+                          " int b = 42; }"));
+}
+
+TEST_F(EmitterTest, AggregateStructWithMethods) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(struct A {
+               int a = 0;
+               int b = 42;
+               int my_mem_fn();
+             };
+             extern "C" void AggregateStruct(A* s);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  // Expect a forward decl in this case
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")), ElementsAre("struct A"));
+}
+
+TEST_F(EmitterTest, RemoveQualifiers) {
+  EmitterForTesting emitter;
+  ASSERT_THAT(
+      RunFrontendAction(
+          R"(struct A { int data; };
+             extern "C" void Structize(const A* in, A* out);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("struct A { int data; }"));
+}
+
+TEST_F(EmitterTest, StructByValueSkipsFunction) {
+  EmitterForTesting emitter;
+  EXPECT_THAT(
+      RunFrontendAction(
+          R"(struct A { int data; };
+             extern "C" int Structize(A a);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), IsEmpty());
+}
+
+TEST_F(EmitterTest, ReturnStructByValueSkipsFunction) {
+  EmitterForTesting emitter;
+  EXPECT_THAT(
+      RunFrontendAction(
+          R"(struct A { int data; };
+             extern "C" A Structize();)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), IsEmpty());
+}
+
+TEST_F(EmitterTest, TypedefStructByValueSkipsFunction) {
+  EmitterForTesting emitter;
+  EXPECT_THAT(
+      RunFrontendAction(
+          R"(typedef struct { int data; } A;
+             extern "C" int Structize(A a);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), IsEmpty());
+}
+
+TEST_F(EmitterTest, CollectTypedefPointerType) {
+  EmitterForTesting emitter;
+  EXPECT_THAT(
+      RunFrontendAction(
+          R"(typedef struct _KernelProfileRecord {
+               int member;
+             }* KernelProfileRecord;
+             extern "C" const KernelProfileRecord*
+             GetOpenCLKernelProfileRecords(const int, long long int*);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), SizeIs(1));
+
+  EXPECT_THAT(
+      UglifyAll(emitter.SpellingsForNS("")),
+      ElementsAre("struct _KernelProfileRecord { int member; }",
+                  "typedef struct _KernelProfileRecord *KernelProfileRecord"));
+}
+
+TEST_F(EmitterTest, TypedefTypeDependencies) {
+  EmitterForTesting emitter;
+  EXPECT_THAT(
+      RunFrontendAction(
+          R"(typedef bool some_other_unused;
+             using size_t = long long int;
+             typedef struct _Image Image;
+             typedef size_t (*StreamHandler)(const Image*, const void*,
+                                             const size_t);
+             enum unrelated_unused { NONE, SOME };
+             struct _Image {
+               StreamHandler stream;
+               int size;
+             };
+             extern "C" void Process(StreamHandler handler);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), SizeIs(1));
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")),
+              ElementsAre("using size_t = long long", "struct _Image",
+                          "typedef struct _Image Image",
+                          "typedef size_t (*StreamHandler)(const Image *, "
+                          "const void *, const size_t)",
+                          "struct _Image {"
+                          " StreamHandler stream;"
+                          " int size; }"));
+}
+
+TEST_F(EmitterTest, OmitDependentTypes) {
+  EmitterForTesting emitter;
+  EXPECT_THAT(
+      RunFrontendAction(
+          R"(template <typename T>
+             struct Callback {
+               typedef void (T::*MemberSignature)();
+               MemberSignature pointer;
+             };
+             struct S : public Callback<S> {
+               void Callable() {}
+             };
+             extern "C" void Invoke(S::MemberSignature* cb);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), SizeIs(1));
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")), IsEmpty());
+}
+
+TEST_F(EmitterTest, SkipAbseilInternals) {
+  EmitterForTesting emitter;
+  EXPECT_THAT(
+      RunFrontendAction(
+          R"(namespace absl::internal {
+               typedef int Int;
+             }
+             extern "C" void TakesAnInternalInt(absl::internal::Int);
+             extern "C" void AbslInternalTakingAnInt(int);)",
+          std::make_unique<GeneratorAction>(emitter, GeneratorOptions())),
+      IsOk());
+  EXPECT_THAT(emitter.GetRenderedFunctions(), SizeIs(1));
+
+  EXPECT_THAT(UglifyAll(emitter.SpellingsForNS("")), IsEmpty());
 }
 
 TEST(IncludeGuard, CreatesRandomizedGuardForEmptyFilename) {

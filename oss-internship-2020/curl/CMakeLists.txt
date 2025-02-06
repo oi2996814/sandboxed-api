@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -35,8 +35,8 @@ add_subdirectory(curl_wrapper)
 
 # Setup Sandboxed API
 set(SAPI_ROOT "../.." CACHE PATH "Path to the Sandboxed API source tree")
-set(SAPI_ENABLE_EXAMPLES ${SAPI_CURL_ENABLE_EXAMPLES} CACHE BOOL "" FORCE)
-set(SAPI_ENABLE_TESTS ${SAPI_CURL_ENABLE_TESTS} CACHE BOOL "" FORCE)
+set(SAPI_BUILD_EXAMPLES ${SAPI_CURL_ENABLE_EXAMPLES} CACHE BOOL "" FORCE)
+set(SAPI_BUILD_TESTING ${SAPI_CURL_ENABLE_TESTS} CACHE BOOL "" FORCE)
 add_subdirectory(
   "${SAPI_ROOT}"
   "${CMAKE_BINARY_DIR}/sandboxed-api-build"

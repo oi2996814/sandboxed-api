@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,13 +22,19 @@ add_dependencies(sandbox2_custom_fork_sandbox
 )
 target_link_libraries(sandbox2_custom_fork_sandbox PRIVATE
   absl::core_headers
-  absl::memory
+  absl::flags
+  absl::flags_parse
+  absl::log
+  absl::log_globals
+  absl::log_initialize
+  absl::log_severity
+  absl::time
   sandbox2::comms
+  sandbox2::fork_client
   sandbox2::forkserver
   sapi::runfiles
   sandbox2::sandbox2
   sapi::base
-  sapi::flags
   sapi::raw_logging
 )
 
@@ -41,10 +47,11 @@ set_target_properties(sandbox2_custom_fork_bin PROPERTIES
 )
 add_executable(sandbox2::custom_fork_bin ALIAS sandbox2_custom_fork_bin)
 target_link_libraries(sandbox2_custom_fork_bin PRIVATE
+  absl::log_initialize
+  absl::flags_parse
   sandbox2::comms
   sandbox2::forkingclient
   sandbox2::util
   sapi::base
-  sapi::flags
   sapi::raw_logging
 )

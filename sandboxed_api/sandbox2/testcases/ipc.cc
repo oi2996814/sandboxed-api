@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,14 +24,14 @@
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/util/raw_logging.h"
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
   if (argc < 2) {
     printf("argc < 2\n");
     return EXIT_FAILURE;
   }
 
-  sandbox2::Comms sb_comms(sandbox2::Comms::kSandbox2ClientCommsFD);
-  sandbox2::Client client(&sb_comms);
+  sandbox2::Comms default_comms(sandbox2::Comms::kDefaultConnection);
+  sandbox2::Client client(&default_comms);
 
   int testno;
   SAPI_RAW_CHECK(absl::SimpleAtoi(argv[1], &testno), "testno is not a number");
@@ -62,14 +62,46 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
   sandbox2::Comms comms(fd);
-  std::string hello;
-  if (!comms.RecvString(&hello)) {
-    fputs("error on comms.RecvString(&hello)", stderr);
+  std::string resp;
+  if (!default_comms.SendString("start")) {
+    fputs("error on default_comms.RecvString(\"start\")", stderr);
+    return EXIT_FAILURE;
+  }
+  if (!default_comms.RecvString(&resp)) {
+    fputs("error on default_comms.RecvString(&resp)", stderr);
+    return EXIT_FAILURE;
+  }
+  if (resp != "started") {
+    fprintf(stderr, "unexpected response \"%s\" (expected \"started\")\n",
+            resp.c_str());
+    return EXIT_FAILURE;
+  }
+
+  if (!comms.RecvString(&resp)) {
+    fputs("error on comms.RecvString(&resp)", stderr);
+    return EXIT_FAILURE;
+  }
+  if (resp != "hello") {
+    fprintf(stderr, "unexpected response \"%s\" (expected \"hello\")\n",
+            resp.c_str());
     return EXIT_FAILURE;
   }
 
   if (!comms.SendString("world")) {
     fputs("error on comms.SendString(\"world\")", stderr);
+    return EXIT_FAILURE;
+  }
+  if (!default_comms.SendString("finish")) {
+    fputs("error on default_comms.RecvString(\"finish\")", stderr);
+    return EXIT_FAILURE;
+  }
+  if (!default_comms.RecvString(&resp)) {
+    fputs("error on default_comms.RecvString(&resp)", stderr);
+    return EXIT_FAILURE;
+  }
+  if (resp != "finished") {
+    fprintf(stderr, "unexpected response \"%s\" (expected \"finished\")\n",
+            resp.c_str());
     return EXIT_FAILURE;
   }
 

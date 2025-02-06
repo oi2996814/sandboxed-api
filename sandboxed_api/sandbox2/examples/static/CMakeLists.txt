@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,12 +21,18 @@ add_dependencies(sandbox2_static_sandbox
   sandbox2::static_bin
 )
 target_link_libraries(sandbox2_static_sandbox PRIVATE
-  absl::memory
+  absl::check
+  absl::flags
+  absl::flags_parse
+  absl::log
+  absl::log_globals
+  absl::log_initialize
+  absl::log_severity
+  absl::time
   sandbox2::bpf_helper
   sapi::runfiles
   sandbox2::sandbox2
   sapi::base
-  sapi::flags
 )
 
 # sandboxed_api/sandbox2/examples/static:static_bin
@@ -37,5 +43,5 @@ set_target_properties(sandbox2_static_bin PROPERTIES OUTPUT_NAME static_bin)
 add_executable(sandbox2::static_bin ALIAS sandbox2_static_bin)
 target_link_libraries(sandbox2_static_bin PRIVATE
   sapi::base
-  -static  # Fully static link
+  -static-pie  # Fully static link
 )

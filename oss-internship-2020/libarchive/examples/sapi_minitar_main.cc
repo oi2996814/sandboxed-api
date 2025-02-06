@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -38,8 +38,8 @@ static void PrintUsage() {
   exit(EXIT_FAILURE);
 }
 
-int main(int unused_argc, const char** argv) {
-  google::InitGoogleLogging(argv[0]);
+int main(int unused_argc, char* argv[]) {
+  sapi::InitLogging(argv[0]);
   const char* filename = nullptr;
   int compress;
   int flags;
@@ -101,7 +101,9 @@ int main(int unused_argc, const char** argv) {
   absl::Status status;
   switch (mode) {
     case 'c':
-      status = CreateArchive(filename, compress, argv, verbose);
+      status = CreateArchive(filename, compress,
+                             sandbox2::util::CharArrPtr(argv).ToStringVector(),
+                             verbose);
       if (!status.ok()) {
         LOG(ERROR) << "Archive creation failed with message: "
                    << status.message();

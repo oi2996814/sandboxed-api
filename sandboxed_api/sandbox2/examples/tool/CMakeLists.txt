@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,12 +19,20 @@ add_executable(sandbox2_sandbox2tool
 set_target_properties(sandbox2_sandbox2tool PROPERTIES OUTPUT_NAME sandbox2tool)
 add_executable(sandbox2::sandbox2tool ALIAS sandbox2_sandbox2tool)
 target_link_libraries(sandbox2_sandbox2tool PRIVATE
-  absl::memory
+  absl::check
+  absl::flags
+  absl::flags_parse
+  absl::flags_usage
+  absl::log
+  absl::log_globals
+  absl::log_initialize
+  absl::log_severity
   absl::strings
+  absl::time
+  sandbox2::allowlists_all_syscalls
+  sandbox2::allowlists_unrestricted_networking
   sandbox2::bpf_helper
-  # sandbox2::ipc
   sandbox2::sandbox2
   sandbox2::util
   sapi::base
-  sapi::flags
 )

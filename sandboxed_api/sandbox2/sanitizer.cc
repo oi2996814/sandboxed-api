@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,14 +16,6 @@
 
 #include "sandboxed_api/sandbox2/sanitizer.h"
 
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
-    defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
-    defined(ABSL_HAVE_LEAK_SANITIZER) ||      \
-    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
-#include <sanitizer/common_interface_defs.h>
-#endif
-
-#include <dirent.h>
 #include <fcntl.h>
 #include <sys/prctl.h>
 #include <syscall.h>
@@ -31,24 +23,25 @@
 
 #include <cerrno>
 #include <csignal>
-#include <cstring>
-#include <fstream>
-#include <sstream>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/str_split.h"
 #include "sandboxed_api/sandbox2/util.h"
-#include "sandboxed_api/util/file_helpers.h"
 #include "sandboxed_api/util/fileops.h"
-#include "sandboxed_api/util/os_error.h"
 #include "sandboxed_api/util/raw_logging.h"
 #include "sandboxed_api/util/status_macros.h"
-#include "sandboxed_api/util/strerror.h"
+
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_LEAK_SANITIZER) ||      \
+    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+#include <sanitizer/common_interface_defs.h>
+#endif
 
 namespace sandbox2::sanitizer {
 namespace {
@@ -126,12 +119,13 @@ absl::Status MarkAllFDsAsCOEExcept(
 
     int flags = fcntl(fd, F_GETFD);
     if (flags == -1) {
-      return absl::InternalError(
-          sapi::OsErrorMessage(errno, "fcntl(", fd, ", F_GETFD) failed"));
+      return absl::ErrnoToStatus(
+          errno, absl::StrCat("fcntl(", fd, ", F_GETFD) failed"));
     }
     if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == -1) {
-      return absl::InternalError(sapi::OsErrorMessage(
-          errno, "fcntl(", fd, ", F_SETFD, ", flags, " | FD_CLOEXEC) failed"));
+      return absl::ErrnoToStatus(
+          errno, absl::StrCat("fcntl(", fd, ", F_SETFD, ", flags,
+                              " | FD_CLOEXEC) failed"));
     }
   }
 
@@ -184,8 +178,8 @@ absl::Status SanitizeCurrentProcess(
 
   // If the parent goes down, so should we.
   if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) != 0) {
-    return absl::InternalError(
-        sapi::OsErrorMessage(errno, "prctl(PR_SET_PDEATHSIG, SIGKILL) failed"));
+    return absl::ErrnoToStatus(errno,
+                               "prctl(PR_SET_PDEATHSIG, SIGKILL) failed");
   }
 
   // Close or mark as close-on-exec open file descriptors.

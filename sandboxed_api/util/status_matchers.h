@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,13 +15,20 @@
 #ifndef SANDBOXED_API_UTIL_STATUS_MATCHERS_H_
 #define SANDBOXED_API_UTIL_STATUS_MATCHERS_H_
 
+#include <ostream>
+#include <string>
 #include <type_traits>
+#include <utility>
 
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "sandboxed_api/util/status_macros.h"
+
+#define SAPI_ASSERT_OK(expr) ASSERT_THAT(expr, ::sapi::IsOk())
 
 #define SAPI_ASSERT_OK_AND_ASSIGN(lhs, rexpr) \
   SAPI_ASSERT_OK_AND_ASSIGN_IMPL(             \
@@ -30,7 +37,7 @@
 #define SAPI_ASSERT_OK_AND_ASSIGN_IMPL(statusor, lhs, rexpr) \
   auto statusor = (rexpr);                                   \
   ASSERT_THAT(statusor.status(), ::sapi::IsOk());            \
-  lhs = std::move(statusor).value();
+  lhs = std::move(statusor).value()
 
 namespace sapi {
 namespace internal {

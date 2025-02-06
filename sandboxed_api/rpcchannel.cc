@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,7 +14,11 @@
 
 #include "sandboxed_api/rpcchannel.h"
 
-#include <glog/logging.h>
+#include <cstdint>
+#include <cstring>
+
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
@@ -39,13 +43,8 @@ absl::StatusOr<FuncRet> RPCChannel::Return(v::Type exp_type) {
   uint32_t tag;
   size_t len;
   FuncRet ret;
-  if (!comms_->RecvTLV(&tag, &len, &ret, sizeof(ret))) {
+  if (!comms_->RecvTLV(&tag, &len, &ret, sizeof(ret), comms::kMsgReturn)) {
     return absl::UnavailableError("Receiving TLV value failed");
-  }
-  if (tag != comms::kMsgReturn) {
-    LOG(ERROR) << "tag != comms::kMsgReturn (" << absl::StrCat(absl::Hex(tag))
-               << " != " << absl::StrCat(absl::Hex(comms::kMsgReturn)) << ")";
-    return absl::UnavailableError("Received TLV has incorrect tag");
   }
   if (len != sizeof(FuncRet)) {
     LOG(ERROR) << "len != sizeof(FuncReturn) (" << len
@@ -134,16 +133,6 @@ absl::Status RPCChannel::Exit() {
   // Try the RPC exit sequence. But, the only thing that matters as a success
   // indicator is whether the Comms channel had been closed
   comms_->SendTLV(comms::kMsgExit, 0, nullptr);
-  bool unused;
-  comms_->RecvBool(&unused);
-
-  if (!comms_->IsTerminated()) {
-    LOG(ERROR) << "Comms channel not terminated in Exit()";
-    // TODO(hamacher): Better error code
-    return absl::FailedPreconditionError(
-        "Comms channel not terminated in Exit()");
-  }
-
   return absl::OkStatus();
 }
 

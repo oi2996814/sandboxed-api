@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,79 +12,130 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A binary that crashes, either directly or by copying and re-executing,
-// to test the stack tracing symbolizer.
+// A binary that exits via different modes: crashes, causes violation, exits
+// normally or times out, to test the stack tracing symbolizer.
 
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/stat.h>
+#include <syscall.h>
 #include <unistd.h>
 
-#include <string>
+#include <cstdlib>
 
 #include "absl/base/attributes.h"
 #include "absl/strings/numbers.h"
+#include "sandboxed_api/sandbox2/testcases/symbolize_lib.h"
 #include "sandboxed_api/util/raw_logging.h"
-#include "sandboxed_api/util/temp_file.h"
+
+// Sometimes we don't have debug info to properly unwind through libc (a frame
+// is skipped).
+// Workaround by putting another frame on the call stack.
+template <typename F>
+ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void IndirectLibcCall(
+    F func) {
+  func();
+}
 
 ABSL_ATTRIBUTE_NOINLINE
-void CrashMe() {
+void CrashMe(char x = 0) {
   volatile char* null = nullptr;
-  *null = 0;
+  *null = x;
 }
 
-void RunWritable() {
-  int exe_fd = open("/proc/self/exe", O_RDONLY);
-  SAPI_RAW_PCHECK(exe_fd >= 0, "Opening /proc/self/exe");
+ABSL_ATTRIBUTE_NOINLINE
+ABSL_ATTRIBUTE_NO_TAIL_CALL
+void ViolatePolicy(int x = 0) {
+  IndirectLibcCall([x]() { syscall(__NR_ptrace, x); });
+}
 
-  std::string tmpname;
-  int tmp_fd;
-  std::tie(tmpname, tmp_fd) = sapi::CreateNamedTempFile("tmp").value();
-  SAPI_RAW_PCHECK(fchmod(tmp_fd, S_IRWXU) == 0, "Fchmod on temporary file");
-
-  char buf[4096];
-  while (true) {
-    ssize_t read_cnt = read(exe_fd, buf, sizeof(buf));
-    SAPI_RAW_PCHECK(read_cnt >= 0, "Reading /proc/self/exe");
-    if (read_cnt == 0) {
-      break;
+ABSL_ATTRIBUTE_NOINLINE
+ABSL_ATTRIBUTE_NO_TAIL_CALL
+void ExitNormally(int x = 0) {
+  IndirectLibcCall([x]() {
+    // _exit is marked noreturn, which makes stack traces a bit trickier -
+    // work around by using a volatile read
+    if (volatile int y = 1) {
+      _exit(x);
     }
-    SAPI_RAW_PCHECK(write(tmp_fd, buf, read_cnt) == read_cnt,
-                    "Writing temporary file");
-  }
-
-  SAPI_RAW_PCHECK(close(tmp_fd) == 0, "Closing temporary file");
-  tmp_fd = open(tmpname.c_str(), O_RDONLY);
-  SAPI_RAW_PCHECK(tmp_fd >= 0, "Reopening temporary file");
-
-  char prog_name[] = "crashme";
-  char testno[] = "1";
-  char* argv[] = {prog_name, testno, nullptr};
-
-  SAPI_RAW_PCHECK(execv(tmpname.c_str(), argv) == 0, "Executing copied binary");
+  });
 }
 
-int main(int argc, char** argv) {
-  if (argc < 2) {
-    printf("argc < 3\n");
-    return EXIT_FAILURE;
-  }
+ABSL_ATTRIBUTE_NOINLINE
+ABSL_ATTRIBUTE_NO_TAIL_CALL
+void SleepForXSeconds(int x = 0) {
+  IndirectLibcCall([x]() { sleep(x); });
+}
 
-  int testno;
-  SAPI_RAW_CHECK(absl::SimpleAtoi(argv[1], &testno), "testno not a number");
+ABSL_ATTRIBUTE_NOINLINE
+ABSL_ATTRIBUTE_NO_TAIL_CALL
+void RunTest(int testno) {
   switch (testno) {
     case 1:
       CrashMe();
       break;
     case 2:
-      RunWritable();
+      ViolatePolicy();
+      break;
+    case 3:
+      ExitNormally();
+      break;
+    case 4:
+      SleepForXSeconds(10);
+      break;
+    case 5: {
+      constexpr int kMaxForks = 16;
+      for (int i = 0; i < kMaxForks; ++i) {
+        if (fork() == 0) {
+          if (i == kMaxForks - 1) {
+            ViolatePolicy();
+          }
+          break;
+        }
+      }
+      SleepForXSeconds(10);
+      break;
+    }
+    default:
+      SAPI_RAW_LOG(FATAL, "Unknown test case: %d", testno);
+  }
+}
+
+ABSL_ATTRIBUTE_NOINLINE
+ABSL_ATTRIBUTE_NO_TAIL_CALL
+void RecurseA(int testno, int n);
+
+ABSL_ATTRIBUTE_NOINLINE
+ABSL_ATTRIBUTE_NO_TAIL_CALL
+void RecurseB(int testno, int n) {
+  if (n > 1) {
+    return RecurseA(testno, n - 1);
+  }
+  return RunTest(testno);
+}
+
+void RecurseA(int testno, int n) {
+  if (n > 1) {
+    return RecurseB(testno, n - 1);
+  }
+  return RunTest(testno);
+}
+
+int main(int argc, char* argv[]) {
+  SAPI_RAW_CHECK(argc >= 3, "Not enough arguments");
+  int testno;
+  int testmode;
+  SAPI_RAW_CHECK(absl::SimpleAtoi(argv[1], &testno), "testno not a number");
+  SAPI_RAW_CHECK(absl::SimpleAtoi(argv[2], &testmode), "testmode not a number");
+  switch (testmode) {
+    case 1:
+      RunTest(testno);
+      break;
+    case 2:
+      RecurseA(testno, 10);
+      break;
+    case 3:
+      LibRecurse(&RunTest, testno, 10);
       break;
     default:
-      printf("Unknown test: %d\n", testno);
-      return EXIT_FAILURE;
+      SAPI_RAW_LOG(FATAL, "Unknown test mode: %d", testmode);
   }
-
-  printf("OK: All tests went OK\n");
   return EXIT_SUCCESS;
 }

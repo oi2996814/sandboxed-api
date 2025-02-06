@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,15 @@
 
 #include "sandboxed_api/sandbox2/result.h"
 
+#include <sys/resource.h>
+
+#include <cstdlib>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "sandboxed_api/config.h"
@@ -29,18 +38,19 @@ Result& Result::operator=(const Result& other) {
   reason_code_ = other.reason_code_;
   stack_trace_ = other.stack_trace_;
   if (other.regs_) {
-    regs_ = absl::make_unique<Regs>(*other.regs_);
+    regs_ = std::make_unique<Regs>(*other.regs_);
   } else {
     regs_.reset(nullptr);
   }
   if (other.syscall_) {
-    syscall_ = absl::make_unique<Syscall>(*other.syscall_);
+    syscall_ = std::make_unique<Syscall>(*other.syscall_);
   } else {
     syscall_.reset(nullptr);
   }
   prog_name_ = other.prog_name_;
   proc_maps_ = other.proc_maps_;
   rusage_monitor_ = other.rusage_monitor_;
+  rusage_sandboxee_ = other.rusage_sandboxee_;
   return *this;
 }
 
@@ -78,14 +88,14 @@ std::string Result::ToString() const {
           ReasonCodeEnumToString(static_cast<ReasonCodeEnum>(reason_code())));
       break;
     case sandbox2::Result::VIOLATION:
-      if (reason_code() == sandbox2::Result::VIOLATION_NETWORK) {
+      if (syscall_) {
+        result = absl::StrCat("SYSCALL VIOLATION - Violating Syscall ",
+                              syscall_->GetDescription(),
+                              " Stack: ", GetStackTrace());
+      } else if (reason_code() == sandbox2::Result::VIOLATION_NETWORK) {
         result = absl::StrCat("NETWORK VIOLATION: ", GetNetworkViolation());
       } else {
-        result = absl::StrCat(
-            "SYSCALL VIOLATION - Violating Syscall ",
-            Syscall::GetArchDescription(GetSyscallArch()), "[", reason_code(),
-            "/", Syscall(GetSyscallArch(), reason_code()).GetName(),
-            "] Stack: ", GetStackTrace());
+        result = "SYSCALL VIOLATION - Unknown Violation";
       }
       break;
     case sandbox2::Result::SIGNALED:
@@ -187,8 +197,12 @@ std::string Result::ReasonCodeEnumToString(ReasonCodeEnum value) {
       return "FAILED_MONITOR";
     case sandbox2::Result::FAILED_KILL:
       return "FAILED_KILL";
+    case sandbox2::Result::FAILED_INTERRUPT:
+      return "FAILED_INTERRUPT";
     case sandbox2::Result::FAILED_CHILD:
       return "FAILED_CHILD";
+    case sandbox2::Result::FAILED_INSPECT:
+      return "FAILED_INSPECT";
     case sandbox2::Result::VIOLATION_SYSCALL:
       return "VIOLATION_SYSCALL";
     case sandbox2::Result::VIOLATION_ARCH:

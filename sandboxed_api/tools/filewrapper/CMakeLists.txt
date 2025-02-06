@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,7 +30,7 @@ sapi_cc_embed_data(NAME filewrapper_embedded
   SOURCES testdata/filewrapper_embedded.bin
 )
 
-if(SAPI_ENABLE_TESTS)
+if(BUILD_TESTING AND SAPI_BUILD_TESTING)
   # sandboxed_api/tools/filewrapper:filewrapper_test
   add_executable(sapi_filewrapper_test
     filewrapper_test.cc
@@ -41,7 +41,6 @@ if(SAPI_ENABLE_TESTS)
   configure_file(testdata/filewrapper_embedded.bin
                  testdata/filewrapper_embedded.bin COPYONLY)
   target_link_libraries(sapi_filewrapper_test PRIVATE
-    absl::strings
     filewrapper_embedded
     sapi::file_helpers
     sapi::fileops

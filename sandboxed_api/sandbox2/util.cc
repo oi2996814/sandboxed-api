@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,47 +14,53 @@
 
 #include "sandboxed_api/sandbox2/util.h"
 
-#include <asm/unistd.h>  // __NR_memdfd_create
+#include <fcntl.h>
+#include <linux/limits.h>
 #include <sched.h>
 #include <spawn.h>
 #include <sys/ptrace.h>
 #include <sys/resource.h>
-#include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#include <syscall.h>
 #include <unistd.h>
 
-#include <array>
+#include <algorithm>
 #include <cerrno>
-#include <climits>
 #include <csetjmp>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
-#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
+#include "absl/base/macros.h"
+#include "absl/base/optimization.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/escaping.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
+#include "absl/types/span.h"
 #include "sandboxed_api/config.h"
 #include "sandboxed_api/util/file_helpers.h"
 #include "sandboxed_api/util/fileops.h"
-#include "sandboxed_api/util/os_error.h"
 #include "sandboxed_api/util/path.h"
 #include "sandboxed_api/util/raw_logging.h"
+#include "sandboxed_api/util/status_macros.h"
 
-namespace sandbox2::util {
+namespace sandbox2 {
+namespace util {
 
 namespace file = ::sapi::file;
 namespace file_util = ::sapi::file_util;
@@ -70,20 +76,32 @@ std::string ConcatenateAll(char* const* arr) {
   return result;
 }
 
-}  // namespace
+#ifdef __ELF__
+extern "C" void __gcov_dump() ABSL_ATTRIBUTE_WEAK;
+extern "C" void __gcov_flush() ABSL_ATTRIBUTE_WEAK;
+extern "C" void __gcov_reset() ABSL_ATTRIBUTE_WEAK;
+#endif
 
-void CharPtrArrToVecString(char* const* arr, std::vector<std::string>* vec) {
-  *vec = CharPtrArray(arr).ToStringVector();
+void ResetCoverageData() {
+#ifdef __ELF__
+  if (&__gcov_reset != nullptr) {
+    __gcov_reset();
+  }
+#endif
 }
 
-const char** VecStringToCharPtrArr(const std::vector<std::string>& vec) {
-  const int vec_size = vec.size();
-  const char** arr = new const char*[vec_size + 1];
-  for (int i = 0; i < vec_size; ++i) {
-    arr[i] = vec[i].c_str();
+}  // namespace
+
+void DumpCoverageData() {
+#ifdef __ELF__
+  if (&__gcov_dump != nullptr) {
+    SAPI_RAW_LOG(WARNING, "Flushing coverage data (dump)");
+    __gcov_dump();
+  } else if (&__gcov_flush != nullptr) {
+    SAPI_RAW_LOG(WARNING, "Flushing coverage data (flush)");
+    __gcov_flush();
   }
-  arr[vec_size] = nullptr;
-  return arr;
+#endif
 }
 
 CharPtrArray::CharPtrArray(char* const* arr) : content_(ConcatenateAll(arr)) {
@@ -127,6 +145,19 @@ std::string GetProgName(pid_t pid) {
   return file_util::fileops::Basename(file_util::fileops::ReadLink(fname));
 }
 
+absl::StatusOr<std::string> GetResolvedFdLink(pid_t pid, uint32_t fd) {
+  // The proc/PID/fd directory contains links for all of that process' file
+  // descriptors. They'll show up as more informative strings (paths, sockets).
+  std::string fd_path = absl::StrFormat("/proc/%u/fd/%u", pid, fd);
+  std::string result(PATH_MAX, '\0');
+  ssize_t size = readlink(fd_path.c_str(), &result[0], PATH_MAX);
+  if (size < 0) {
+    return absl::ErrnoToStatus(size, "failed to read link");
+  }
+  result.resize(size);
+  return result;
+}
+
 std::string GetCmdLine(pid_t pid) {
   std::string fname = file::JoinPath("/proc", absl::StrCat(pid), "cmdline");
   std::string cmdline;
@@ -168,34 +199,6 @@ long Syscall(long sys_no,  // NOLINT
              uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t a4,
              uintptr_t a5, uintptr_t a6) {
   return syscall(sys_no, a1, a2, a3, a4, a5, a6);
-}
-
-bool CreateDirRecursive(const std::string& path, mode_t mode) {
-  int error = mkdir(path.c_str(), mode);
-
-  if (error == 0 || errno == EEXIST) {
-    return true;
-  }
-
-  // We couldn't create the dir for reasons we can't handle.
-  if (errno != ENOENT) {
-    return false;
-  }
-
-  // The EEXIST case, the parent directory doesn't exist yet.
-  // Let's create it.
-  const std::string dir = file_util::fileops::StripBasename(path);
-  if (dir == "/" || dir.empty()) {
-    return false;
-  }
-  if (!CreateDirRecursive(dir, mode)) {
-    return false;
-  }
-
-  // Now the parent dir exists, retry creating the directory.
-  error = mkdir(path.c_str(), mode);
-
-  return error == 0;
 }
 
 namespace {
@@ -253,10 +256,10 @@ pid_t ForkWithFlags(int flags) {
 bool CreateMemFd(int* fd, const char* name) {
   // Usually defined in linux/memfd.h. Define it here to avoid dependency on
   // UAPI headers.
-  constexpr uintptr_t MFD_CLOEXEC = 0x0001;
-  constexpr uintptr_t MFD_ALLOW_SEALING = 0x0002;
+  constexpr uintptr_t kMfdCloseOnExec = 0x0001;
+  constexpr uintptr_t kMfdAllowSealing = 0x0002;
   int tmp_fd = Syscall(__NR_memfd_create, reinterpret_cast<uintptr_t>(name),
-                       MFD_CLOEXEC | MFD_ALLOW_SEALING);
+                       kMfdCloseOnExec | kMfdAllowSealing);
   if (tmp_fd < 0) {
     if (errno == ENOSYS) {
       SAPI_RAW_LOG(ERROR,
@@ -278,7 +281,7 @@ absl::StatusOr<int> Communicate(const std::vector<std::string>& argv,
   posix_spawn_file_actions_t action;
 
   if (pipe(cout_pipe) == -1) {
-    return absl::UnknownError(sapi::OsErrorMessage(errno, "creating pipe"));
+    return absl::ErrnoToStatus(errno, "creating pipe");
   }
   file_util::fileops::FDCloser cout_closer{cout_pipe[1]};
 
@@ -301,7 +304,7 @@ absl::StatusOr<int> Communicate(const std::vector<std::string>& argv,
   if (posix_spawnp(&pid, args.array()[0], &action, nullptr,
                    const_cast<char**>(args.data()),
                    const_cast<char**>(envp.data())) != 0) {
-    return absl::UnknownError(sapi::OsErrorMessage(errno, "posix_spawnp()"));
+    return absl::ErrnoToStatus(errno, "posix_spawnp()");
   }
 
   // Close child end of the pipe.
@@ -312,8 +315,7 @@ absl::StatusOr<int> Communicate(const std::vector<std::string>& argv,
     int bytes_read =
         TEMP_FAILURE_RETRY(read(cout_pipe[0], &buffer[0], buffer.length()));
     if (bytes_read < 0) {
-      return absl::InternalError(
-          sapi::OsErrorMessage(errno, "reading from cout pipe"));
+      return absl::ErrnoToStatus(errno, "reading from cout pipe");
     }
     if (bytes_read == 0) {
       break;  // Nothing left to read
@@ -343,6 +345,29 @@ std::string GetSignalName(int signo) {
     return absl::StrFormat("UNKNOWN_SIGNAL [%d]", signo);
   }
   return absl::StrFormat("%s [%d]", kSignalNames[signo], signo);
+}
+
+std::string GetAddressFamily(int addr_family) {
+  // Taken from definitions in `socket.h`. Each family's index in the array is
+  // also its integer value.
+  constexpr absl::string_view kAddressFamilies[] = {
+      "AF_UNSPEC",     "AF_UNIX",      "AF_INET",     "AF_AX25",
+      "AF_IPX",        "AF_APPLETALK", "AF_NETROM",   "AF_BRIDGE",
+      "AF_ATMPVC",     "AF_X25",       "AF_INET6",    "AF_ROSE",
+      "AF_DECnet",     "AF_NETBEUI",   "AF_SECURITY", "AF_KEY",
+      "AF_NETLINK",    "AF_PACKET",    "AF_ASH",      "AF_ECONET",
+      "AF_ATMSVC",     "AF_RDS",       "AF_SNA",      "AF_IRDA",
+      "AF_PPPOX",      "AF_WANPIPE",   "AF_LLC",      "AF_IB",
+      "AF_MPLS",       "AF_CAN",       "AF_TIPC",     "AF_BLUETOOTH",
+      "AF_IUCV",       "AF_RXRPC",     "AF_ISDN",     "AF_PHONET",
+      "AF_IEEE802154", "AF_CAIF",      "AF_ALG",      "AF_NFC",
+      "AF_VSOCK",      "AF_KCM",       "AF_QIPCRTR",  "AF_SMC",
+      "AF_XDP",        "AF_MCTP"};
+
+  if (addr_family < 0 && addr_family >= ABSL_ARRAYSIZE(kAddressFamilies)) {
+    return absl::StrFormat("UNKNOWN_ADDRESS_FAMILY [%d]", addr_family);
+  }
+  return std::string(kAddressFamilies[addr_family]);
 }
 
 std::string GetRlimitName(int resource) {
@@ -389,47 +414,301 @@ std::string GetPtraceEventName(int event) {
   }
 }
 
-absl::StatusOr<std::string> ReadCPathFromPid(pid_t pid, uintptr_t ptr) {
-  std::string path(PATH_MAX, '\0');
-  iovec local_iov[] = {{&path[0], path.size()}};
+namespace {
 
+// Transfer memory via process_vm_readv/process_vm_writev in page-aligned
+// chunks.
+absl::StatusOr<size_t> ProcessVmTransfer(bool is_read, pid_t pid, uintptr_t ptr,
+                                         absl::Span<char> data) {
+  // Input sanity checks.
+  if (data.empty()) {
+    return 0;
+  }
+
+  size_t total_bytes_transferred = 0;
+  while (!data.empty()) {
+    iovec local_iov = {data.data(), data.size()};
+    iovec remote_iov = {reinterpret_cast<void*>(ptr), data.size()};
+    ssize_t bytes_transferred =
+        is_read ? process_vm_readv(pid, &local_iov, 1, &remote_iov, 1, 0)
+                : process_vm_writev(pid, &local_iov, 1, &remote_iov, 1, 0);
+    if (bytes_transferred == 0) {
+      if (total_bytes_transferred > 0) {
+        return total_bytes_transferred;
+      }
+      return absl::NotFoundError(absl::StrFormat(
+          "Transfer was unsuccessful for PID: %d at address: %#x", pid, ptr));
+    } else if (bytes_transferred < 0) {
+      if (total_bytes_transferred > 0) {
+        return total_bytes_transferred;
+      }
+      return absl::ErrnoToStatus(
+          errno,
+          absl::StrFormat("transfer() failed for PID: %d at address: %#x", pid,
+                          ptr));
+    }
+    ptr += bytes_transferred;
+    data = data.subspan(bytes_transferred, data.size() - bytes_transferred);
+    total_bytes_transferred += bytes_transferred;
+  }
+  return total_bytes_transferred;
+}
+
+// Transfer memory via process_vm_readv.
+absl::StatusOr<size_t> ProcessVmReadInSplitChunks(pid_t pid, uintptr_t ptr,
+                                                  absl::Span<char> data) {
   static const uintptr_t page_size = getpagesize();
-  static const uintptr_t page_mask = ~(page_size - 1);
-  // See 'man process_vm_readv' for details on how to read NUL-terminated
-  // strings with this syscall.
-  size_t len1 = ((ptr + page_size) & page_mask) - ptr;
-  len1 = (len1 > path.size()) ? path.size() : len1;
-  size_t len2 = (path.size() <= len1) ? 0UL : path.size() - len1;
-  // Second iov is wrapping around to NULL ptr.
-  if ((ptr + len1) < ptr) {
-    len2 = 0UL;
+  static const uintptr_t page_mask = page_size - 1;
+
+  // Input sanity checks.
+  if (data.empty()) {
+    return 0;
   }
 
-  iovec remote_iov[] = {
-      {reinterpret_cast<void*>(ptr), len1},
-      {reinterpret_cast<void*>(ptr + len1), len2},
-  };
+  // Repeatedly call process_vm_readv/writev in IOV_MAX iovec chunks.
+  size_t total_bytes_transferred = 0;
+  while (!data.empty()) {
+    // Stores all the necessary iovecs to move memory.
+    iovec local_iov = {data.data(), 0};
+    // Stores all the necessary iovecs to move memory.
+    std::vector<iovec> remote_iov;
+    // Each iovec should be contained to a single page.
+    while (!data.empty() && remote_iov.size() < IOV_MAX) {
+      size_t size_in_page =
+          ptr & page_mask ? page_size - ptr & page_mask : page_size;
+      size_t chunk_size = std::min(data.size(), size_in_page);
+      remote_iov.push_back({reinterpret_cast<void*>(ptr), chunk_size});
+      local_iov.iov_len += chunk_size;
+      ptr += chunk_size;
+      data = data.subspan(chunk_size, data.size() - chunk_size);
+    }
+    ssize_t bytes_transferred = process_vm_readv(
+        pid, &local_iov, 1, remote_iov.data(), remote_iov.size(), 0);
+    if (bytes_transferred == 0) {
+      if (total_bytes_transferred == 0) {
+        return absl::NotFoundError(absl::StrFormat(
+            "Transfer was unsuccessful for PID: %d at address: %#x", pid, ptr));
+      }
+      break;
+    } else if (bytes_transferred < 0) {
+      return absl::ErrnoToStatus(
+          errno,
+          absl::StrFormat("transfer() failed for PID: %d at address: %#x", pid,
+                          ptr));
+    }
+    total_bytes_transferred += bytes_transferred;
+    if (bytes_transferred < local_iov.iov_len) {
+      // Read to end of a mapped region (short of full transfer).
+      break;
+    }
+  }
+  return total_bytes_transferred;
+}
 
-  SAPI_RAW_VLOG(4, "ReadCPathFromPid (iovec): len1: %zu, len2: %zu", len1,
-                len2);
-  ssize_t sz = process_vm_readv(pid, local_iov, ABSL_ARRAYSIZE(local_iov),
-                                remote_iov, ABSL_ARRAYSIZE(remote_iov), 0);
-  if (sz < 0) {
-    return absl::InternalError(sapi::OsErrorMessage(
-        errno,
-        absl::StrFormat("process_vm_readv() failed for PID: %d at address: %#x",
-                        pid, reinterpret_cast<uintptr_t>(ptr))));
+// Open /proc/pid/mem file descriptor.
+absl::StatusOr<file_util::fileops::FDCloser> OpenProcMem(pid_t pid,
+                                                         bool is_read) {
+  auto path = absl::StrFormat("/proc/%d/mem", pid);
+  auto closer = file_util::fileops::FDCloser(
+      open(path.c_str(), is_read ? O_RDONLY : O_WRONLY));
+  if (closer.get() == -1) {
+    return absl::ErrnoToStatus(
+        errno, absl::StrFormat("open() failed for PID: %d", pid));
+  }
+  return closer;
+}
+
+absl::StatusOr<size_t> ProcMemTransfer(bool is_read, pid_t pid, uintptr_t ptr,
+                                       absl::Span<char> data) {
+  if (data.empty()) {
+    return 0;
   }
 
-  // Check for whether there's a NUL byte in the buffer. If not, it's an
-  // incorrect path (or >PATH_MAX).
-  auto pos = path.find('\0');
-  if (pos == std::string::npos) {
-    return absl::FailedPreconditionError(absl::StrCat(
-        "No NUL-byte inside the C string '", absl::CHexEscape(path), "'"));
+  SAPI_ASSIGN_OR_RETURN(file_util::fileops::FDCloser fd_closer,
+                        OpenProcMem(pid, is_read));
+  size_t total_bytes_transferred = 0;
+  while (!data.empty()) {
+    ssize_t bytes_transfered =
+        is_read ? pread(fd_closer.get(), data.data(), data.size(), ptr)
+                : pwrite(fd_closer.get(), data.data(), data.size(), ptr);
+    if (bytes_transfered == 0) {
+      if (total_bytes_transferred == 0) {
+        return absl::NotFoundError(absl::StrFormat(
+            "Transfer was unsuccessful for PID: %d at address: %#x", pid, ptr));
+      }
+      break;
+    } else if (bytes_transfered < 0) {
+      if (total_bytes_transferred > 0) {
+        // Return number of bytes transferred until this error or end.
+        break;
+      }
+      // pread/write of /proc/<pid>mem returns EIO when ptr is unmapped.
+      if (errno == EIO) {
+        // Emulate returned error code from process_vm_readv.
+        errno = EFAULT;
+      }
+      return absl::ErrnoToStatus(
+          errno,
+          absl::StrFormat("transfer() failed for PID: %d at address: %#x", pid,
+                          ptr));
+    }
+    ptr += bytes_transfered;
+    data = data.subspan(bytes_transfered, data.size() - bytes_transfered);
+    total_bytes_transferred += bytes_transfered;
   }
-  path.resize(pos);
+  return total_bytes_transferred;
+}
+
+bool CheckIfProcessVmTransferWorks() {
+  // Fall-back to pread("/proc/$pid/mem") if process_vm_readv is unavailable.
+  static bool process_vm_transfer_works = []() {
+    constexpr char kMagic = 42;
+    char src = kMagic;
+    char dst = 0;
+    absl::StatusOr<size_t> read = internal::ReadBytesFromPidWithReadv(
+        getpid(), reinterpret_cast<uintptr_t>(&src), absl::MakeSpan(&dst, 1));
+    if (!read.ok() || *read != 1 || dst != kMagic) {
+      SAPI_RAW_LOG(WARNING,
+                   "This system does not seem to support the process_vm_readv()"
+                   " or process_vm_writev syscall. Falling back to transfers"
+                   " via /proc/pid/mem.");
+      return false;
+    }
+    return true;
+  }();
+  return process_vm_transfer_works;
+}
+
+}  // namespace
+
+namespace internal {
+
+absl::StatusOr<size_t> ReadBytesFromPidWithReadv(pid_t pid, uintptr_t ptr,
+                                                 absl::Span<char> data) {
+  return ProcessVmTransfer(true, pid, ptr, data);
+}
+
+absl::StatusOr<size_t> WriteBytesToPidWithWritev(pid_t pid, uintptr_t ptr,
+                                                 absl::Span<const char> data) {
+  return ProcessVmTransfer(
+      false, pid, ptr,
+      absl::MakeSpan(const_cast<char*>(data.data()), data.size()));
+}
+
+absl::StatusOr<size_t> ReadBytesFromPidWithProcMem(pid_t pid, uintptr_t ptr,
+                                                   absl::Span<char> data) {
+  return ProcMemTransfer(true, pid, ptr, data);
+}
+
+absl::StatusOr<size_t> ReadBytesFromPidWithReadvInSplitChunks(
+    pid_t pid, uintptr_t ptr, absl::Span<char> data) {
+  return ProcessVmReadInSplitChunks(pid, ptr, data);
+}
+
+absl::StatusOr<size_t> WriteBytesToPidWithProcMem(pid_t pid, uintptr_t ptr,
+                                                  absl::Span<const char> data) {
+  return ProcMemTransfer(
+      false, pid, ptr,
+      absl::MakeSpan(const_cast<char*>(data.data()), data.size()));
+}
+
+}  // namespace internal
+
+absl::StatusOr<size_t> ReadBytesFromPidInto(pid_t pid, uintptr_t ptr,
+                                            absl::Span<char> data) {
+  if (CheckIfProcessVmTransferWorks()) {
+    return internal::ReadBytesFromPidWithReadv(pid, ptr, data);
+  } else {
+    return internal::ReadBytesFromPidWithProcMem(pid, ptr, data);
+  }
+}
+
+absl::StatusOr<size_t> WriteBytesToPidFrom(pid_t pid, uintptr_t ptr,
+                                           absl::Span<const char> data) {
+  if (CheckIfProcessVmTransferWorks()) {
+    return internal::WriteBytesToPidWithWritev(pid, ptr, data);
+  } else {
+    return internal::WriteBytesToPidWithProcMem(pid, ptr, data);
+  }
+}
+
+absl::StatusOr<std::vector<uint8_t>> ReadBytesFromPid(pid_t pid, uintptr_t ptr,
+                                                      size_t size) {
+  // Allocate enough bytes to hold the entire size.
+  std::vector<uint8_t> bytes(size, 0);
+  size_t result;
+  if (CheckIfProcessVmTransferWorks()) {
+    SAPI_ASSIGN_OR_RETURN(
+        result,
+        ProcessVmReadInSplitChunks(
+            pid, ptr,
+            absl::MakeSpan(reinterpret_cast<char*>(bytes.data()), size)));
+  } else {
+    SAPI_ASSIGN_OR_RETURN(
+        result,
+        internal::ReadBytesFromPidWithProcMem(
+            pid, ptr,
+            absl::MakeSpan(reinterpret_cast<char*>(bytes.data()), size)));
+  }
+  // Ensure only successfully read bytes are returned.
+  bytes.resize(result);
+  return bytes;
+}
+
+absl::StatusOr<std::string> ReadCPathFromPid(pid_t pid, uintptr_t ptr) {
+  SAPI_ASSIGN_OR_RETURN(std::vector<uint8_t> bytes,
+                        ReadBytesFromPid(pid, ptr, PATH_MAX));
+  auto null_pos = absl::c_find(bytes, '\0');
+  std::string path(bytes.begin(), null_pos);
+  if (null_pos == bytes.end()) {
+    return absl::FailedPreconditionError(
+        absl::StrFormat("path '%s' is too long", absl::CHexEscape(path)));
+  }
   return path;
 }
 
-}  // namespace sandbox2::util
+int Execveat(int dirfd, const char* pathname, const char* const argv[],
+             const char* const envp[], int flags, uintptr_t extra_arg) {
+  // Flush coverage data prior to exec.
+  if (extra_arg == 0) {
+    DumpCoverageData();
+  }
+  int res = syscall(__NR_execveat, static_cast<uintptr_t>(dirfd),
+                    reinterpret_cast<uintptr_t>(pathname),
+                    reinterpret_cast<uintptr_t>(argv),
+                    reinterpret_cast<uintptr_t>(envp),
+                    static_cast<uintptr_t>(flags), extra_arg);
+  // Reset coverage data if exec fails as the counters have been already dumped.
+  if (extra_arg == 0) {
+    ResetCoverageData();
+  }
+  return res;
+}
+
+absl::StatusOr<bool> IsRunningInSandbox2() {
+  // Check if the kMagicSyscallNo syscall is available.
+  int result = Syscall(sandbox2::internal::kMagicSyscallNo);
+  if (result == 0) {
+    // If this happens, then someone has implemented the kMagicSyscallNo syscall
+    // and it is returning 0.
+    return absl::InternalError(
+        "kMagicSyscallNo syscall succeeded unexpectedly");
+  }
+
+  // The caller is not running under a sandbox2.
+  if (errno == ENOSYS) {
+    return false;
+  }
+
+  // The caller is running under a sandbox2.
+  if (errno == sandbox2::internal::kMagicSyscallErr) {
+    return true;
+  }
+
+  // An unexpected errno was returned.
+  return absl::InternalError(absl::StrFormat(
+      "Unexpected errno for syscall kMagicSyscallNo: %d", errno));
+}
+
+}  // namespace util
+}  // namespace sandbox2

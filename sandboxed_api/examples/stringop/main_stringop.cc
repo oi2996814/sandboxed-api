@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,24 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <cstring>
+#include <string>
 
-#include <glog/logging.h>
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "sandboxed_api/util/flag.h"
+#include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
-#include "absl/time/time.h"
-#include "sandboxed_api/examples/stringop/sandbox.h"
-#include "sandboxed_api/examples/stringop/stringop-sapi.sapi.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "sandboxed_api/examples/stringop/stringop_params.pb.h"
 #include "sandboxed_api/transaction.h"
 #include "sandboxed_api/util/status_macros.h"
 #include "sandboxed_api/util/status_matchers.h"
 #include "sandboxed_api/vars.h"
+
+#include "sandboxed_api/examples/stringop/stringop-sapi.sapi.h"
 
 namespace {
 
@@ -41,20 +40,23 @@ using ::testing::StrEq;
 
 // Tests using a simple transaction (and function pointers):
 TEST(StringopTest, ProtobufStringDuplication) {
-  sapi::BasicTransaction st(absl::make_unique<StringopSapiSandbox>());
+  sapi::BasicTransaction st(absl::make_unique<StringopSandbox>());
   EXPECT_THAT(st.Run([](sapi::Sandbox* sandbox) -> absl::Status {
     StringopApi api(sandbox);
     stringop::StringDuplication proto;
     proto.set_input("Hello");
-    sapi::v::Proto<stringop::StringDuplication> pp(proto);
+    auto pp = sapi::v::Proto<stringop::StringDuplication>::FromMessage(proto);
+    if (!pp.ok()) {
+      return pp.status();
+    }
     {
       SAPI_ASSIGN_OR_RETURN(int return_value,
-                            api.pb_duplicate_string(pp.PtrBoth()));
+                            api.pb_duplicate_string(pp->PtrBoth()));
       TRANSACTION_FAIL_IF_NOT(return_value, "pb_duplicate_string() failed");
     }
 
-    SAPI_ASSIGN_OR_RETURN(auto pb_result, pp.GetMessage());
-    LOG(INFO) << "Result PB: " << pb_result.DebugString();
+    SAPI_ASSIGN_OR_RETURN(auto pb_result, pp->GetMessage());
+    LOG(INFO) << "Result PB: " << pb_result;
     TRANSACTION_FAIL_IF_NOT(pb_result.output() == "HelloHello",
                             "Incorrect output");
     return absl::OkStatus();
@@ -63,7 +65,7 @@ TEST(StringopTest, ProtobufStringDuplication) {
 }
 
 TEST(StringopTest, ProtobufStringReversal) {
-  StringopSapiSandbox sandbox;
+  StringopSandbox sandbox;
   ASSERT_THAT(sandbox.Init(), IsOk());
   StringopApi api(&sandbox);
 
@@ -75,12 +77,12 @@ TEST(StringopTest, ProtobufStringReversal) {
   EXPECT_THAT(return_value, Ne(0)) << "pb_reverse_string() failed";
 
   SAPI_ASSERT_OK_AND_ASSIGN(auto pb_result, pp->GetMessage());
-  LOG(INFO) << "Result PB: " << pb_result.DebugString();
+  LOG(INFO) << "Result PB: " << pb_result;
   EXPECT_THAT(pb_result.output(), StrEq("olleH"));
 }
 
 TEST(StringopTest, RawStringDuplication) {
-  StringopSapiSandbox sandbox;
+  StringopSandbox sandbox;
   ASSERT_THAT(sandbox.Init(), IsOk());
   StringopApi api(&sandbox);
 
@@ -97,7 +99,7 @@ TEST(StringopTest, RawStringDuplication) {
 }
 
 TEST(StringopTest, RawStringReversal) {
-  StringopSapiSandbox sandbox;
+  StringopSandbox sandbox;
   ASSERT_THAT(sandbox.Init(), IsOk());
   StringopApi api(&sandbox);
 
@@ -135,7 +137,7 @@ TEST(StringopTest, RawStringReversal) {
 }
 
 TEST(StringopTest, RawStringLength) {
-  StringopSapiSandbox sandbox;
+  StringopSandbox sandbox;
   ASSERT_THAT(sandbox.Init(), IsOk());
   StringopApi api(&sandbox);
   SAPI_ASSERT_OK_AND_ASSIGN(void* target_mem_ptr, api.get_raw_c_string());
@@ -145,7 +147,7 @@ TEST(StringopTest, RawStringLength) {
 }
 
 TEST(StringopTest, RawStringReading) {
-  StringopSapiSandbox sandbox;
+  StringopSandbox sandbox;
   ASSERT_THAT(sandbox.Init(), IsOk());
   StringopApi api(&sandbox);
   SAPI_ASSERT_OK_AND_ASSIGN(void* target_mem_ptr, api.get_raw_c_string());

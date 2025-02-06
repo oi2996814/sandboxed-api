@@ -4,19 +4,13 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-if(SAPI_LIB_TYPE STREQUAL "STATIC")
-  set(_sandbox2_linkopts -static)
-else()
-  set(_sandbox2_linkopts ${CMAKE_THREAD_LIBS_INIT})
-endif()
 
 # sandboxed_api/sandbox2/testcases:abort
 add_executable(sandbox2_testcase_abort
@@ -26,6 +20,7 @@ set_target_properties(sandbox2_testcase_abort PROPERTIES
   OUTPUT_NAME abort)
 add_executable(sandbox2::testcase_abort ALIAS sandbox2_testcase_abort)
 target_link_libraries(sandbox2_testcase_abort PRIVATE
+  -static
   sapi::base
   sapi::raw_logging
 )
@@ -40,7 +35,8 @@ set_target_properties(sandbox2_testcase_add_policy_on_syscalls PROPERTIES
   OUTPUT_NAME add_policy_on_syscalls
 )
 target_link_libraries(sandbox2_testcase_add_policy_on_syscalls PRIVATE
-  ${_sandbox2_linkopts}
+  -static
+  sapi::base
 )
 
 # sandboxed_api/sandbox2/testcases:buffer
@@ -52,11 +48,9 @@ set_target_properties(sandbox2_testcase_buffer PROPERTIES
   OUTPUT_NAME buffer
 )
 target_link_libraries(sandbox2_testcase_buffer PRIVATE
-  absl::str_format
+  -static
   sandbox2::buffer
-  sandbox2::comms
   sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:ipc
@@ -68,6 +62,7 @@ set_target_properties(sandbox2_testcase_ipc PROPERTIES
 )
 add_executable(sandbox2::testcase_ipc ALIAS sandbox2_testcase_ipc)
 target_link_libraries(sandbox2_testcase_ipc PRIVATE
+  -static
   absl::strings
   sandbox2::client
   sandbox2::comms
@@ -85,8 +80,8 @@ set_target_properties(sandbox2_testcase_malloc_system PROPERTIES
   OUTPUT_NAME malloc_system
 )
 target_link_libraries(sandbox2_testcase_malloc_system PRIVATE
+  -static
   sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:minimal_dynamic
@@ -111,8 +106,8 @@ set_target_properties(sandbox2_testcase_minimal PROPERTIES
   OUTPUT_NAME minimal
 )
 target_link_libraries(sandbox2_testcase_minimal PRIVATE
+  -static
   sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:personality
@@ -125,8 +120,8 @@ set_target_properties(sandbox2_testcase_personality PROPERTIES
   OUTPUT_NAME personality
 )
 target_link_libraries(sandbox2_testcase_personality PRIVATE
+  -static
   sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:pidcomms
@@ -138,11 +133,11 @@ set_target_properties(sandbox2_testcase_pidcomms PROPERTIES
   OUTPUT_NAME pidcomms
 )
 target_link_libraries(sandbox2_testcase_pidcomms PRIVATE
+  -static
   sandbox2::client
   sandbox2::comms
   sapi::base
   sapi::raw_logging
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:policy
@@ -154,22 +149,29 @@ set_target_properties(sandbox2_testcase_policy PROPERTIES
   OUTPUT_NAME policy
 )
 target_link_libraries(sandbox2_testcase_policy PRIVATE
+  -static
+  absl::core_headers
+  sandbox2::client
+  sandbox2::comms
+  sandbox2::util
   sapi::base
-  sapi::config
-  ${_sandbox2_linkopts}
 )
 
-# sandboxed_api/sandbox2/testcases:print_fds
-add_executable(sandbox2_testcase_print_fds
-  print_fds.cc
+# sandboxed_api/sandbox2/testcases:sandbox_detection
+add_executable(sandbox2_testcase_sandbox_detection
+  sandbox_detection.cc
 )
-add_executable(sandbox2::testcase_print_fds ALIAS sandbox2_testcase_print_fds)
-set_target_properties(sandbox2_testcase_print_fds PROPERTIES
-  OUTPUT_NAME print_fds
+add_executable(sandbox2::testcase_policy ALIAS sandbox2_testcase_sandbox_detection)
+set_target_properties(sandbox2_testcase_sandbox_detection PROPERTIES
+  OUTPUT_NAME sandbox_detection
 )
-target_link_libraries(sandbox2_testcase_print_fds PRIVATE
+target_link_libraries(sandbox2_testcase_sandbox_detection PRIVATE
+  -static
+  absl::statusor
+  sandbox2::client
+  sandbox2::comms
+  sandbox2::util
   sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:sanitizer
@@ -181,8 +183,8 @@ set_target_properties(sandbox2_testcase_sanitizer PROPERTIES
   OUTPUT_NAME sanitizer
 )
 target_link_libraries(sandbox2_testcase_sanitizer PRIVATE
+  -static
   sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:close_fds
@@ -195,10 +197,10 @@ set_target_properties(sandbox2_testcase_close_fds PROPERTIES
 )
 target_link_libraries(sandbox2_testcase_close_fds PRIVATE
   sapi::base
-  ${_sandbox2_linkopts}
+  absl::check
+  absl::status
   absl::strings
   absl::flat_hash_set
-  glog::glog
   sandbox2::sanitizer
 )
 
@@ -212,8 +214,8 @@ set_target_properties(sandbox2_testcase_sleep PROPERTIES
   OUTPUT_NAME sleep
 )
 target_link_libraries(sandbox2_testcase_sleep PRIVATE
+  -static
   sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:symbolize
@@ -225,13 +227,29 @@ set_target_properties(sandbox2_testcase_symbolize PROPERTIES
   OUTPUT_NAME symbolize
 )
 target_link_libraries(sandbox2_testcase_symbolize PRIVATE
+  -static
   absl::core_headers
   absl::strings
-  sapi::temp_file
-  sapi::strerror
   sapi::base
   sapi::raw_logging
-  ${_sandbox2_linkopts}
+  sandbox2::testcase_symbolize_lib
+)
+
+# sandboxed_api/sandbox2/testcases:symbolize_lib
+add_library(sandbox2_testcase_symbolize_lib
+  symbolize_lib.cc
+  symbolize_lib.h
+)
+add_library(sandbox2::testcase_symbolize_lib ALIAS sandbox2_testcase_symbolize_lib)
+target_link_libraries(sandbox2_testcase_symbolize_lib PRIVATE
+  -static
+  absl::core_headers
+  sapi::base
+)
+target_compile_options(sandbox2_testcase_symbolize_lib PRIVATE
+  -fno-omit-frame-pointer
+  -fno-unwind-tables
+  -fno-asynchronous-unwind-tables
 )
 
 # sandboxed_api/sandbox2/testcases:starve
@@ -243,9 +261,9 @@ set_target_properties(sandbox2_testcase_starve PROPERTIES
   OUTPUT_NAME starve
 )
 target_link_libraries(sandbox2_testcase_starve PRIVATE
+  -static
   sapi::base
 )
-
 
 # sandboxed_api/sandbox2/testcases:tsync
 add_executable(sandbox2_testcase_tsync
@@ -256,23 +274,10 @@ set_target_properties(sandbox2_testcase_tsync PROPERTIES
   OUTPUT_NAME tsync
 )
 target_link_libraries(sandbox2_testcase_tsync PRIVATE
+  -static
   sandbox2::client
   sandbox2::comms
   sapi::base
-  ${_sandbox2_linkopts}
-)
-
-# sandboxed_api/sandbox2/testcases:hostname
-add_executable(sandbox2_testcase_hostname
-  hostname.cc
-)
-add_executable(sandbox2::testcase_hostname ALIAS sandbox2_testcase_hostname)
-set_target_properties(sandbox2_testcase_hostname PROPERTIES
-  OUTPUT_NAME hostname
-)
-target_link_libraries(sandbox2_testcase_hostname PRIVATE
-  sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:limits
@@ -284,8 +289,8 @@ set_target_properties(sandbox2_testcase_limits PROPERTIES
   OUTPUT_NAME limits
 )
 target_link_libraries(sandbox2_testcase_limits PRIVATE
+  -static
   sapi::base
-  ${_sandbox2_linkopts}
 )
 
 # sandboxed_api/sandbox2/testcases:namespace
@@ -297,6 +302,91 @@ set_target_properties(sandbox2_testcase_namespace PROPERTIES
   OUTPUT_NAME namespace
 )
 target_link_libraries(sandbox2_testcase_namespace PRIVATE
+  -static
+  absl::check
+  absl::flat_hash_set
+  absl::strings
+  sandbox2::comms
   sapi::base
-  ${_sandbox2_linkopts}
+  sapi::file_base
+  sapi::fileops
+)
+
+# sandboxed_api/sandbox2/testcases:network_proxy
+add_executable(sandbox2_testcase_network_proxy
+  network_proxy.cc
+)
+add_executable(sandbox2::testcase_network_proxy ALIAS sandbox2_testcase_network_proxy)
+set_target_properties(sandbox2_testcase_network_proxy PROPERTIES
+  OUTPUT_NAME network_proxy
+)
+target_link_libraries(sandbox2_testcase_network_proxy PRIVATE
+  absl::check
+  absl::flags
+  absl::flags_parse
+  absl::log
+  absl::log_globals
+  absl::log_initialize
+  absl::log_severity
+  absl::status
+  absl::statusor
+  absl::strings
+  absl::str_format
+  sandbox2::client
+  sandbox2::comms
+  sandbox2::network_proxy_client
+  sapi::base
+  sapi::file_base
+  sapi::fileops
+  sapi::status
+)
+
+# sandboxed_api/sandbox2/testcases:custom_fork
+add_executable(sandbox2_testcase_custom_fork
+  custom_fork.cc
+)
+add_executable(sandbox2::testcase_custom_fork ALIAS sandbox2_testcase_custom_fork)
+set_target_properties(sandbox2_testcase_custom_fork PROPERTIES
+  OUTPUT_NAME custom_fork
+)
+target_link_libraries(sandbox2_testcase_custom_fork PRIVATE
+  sandbox2::comms
+  sandbox2::forkingclient
+  sapi::base
+  sapi::raw_logging
+)
+
+# sandboxed_api/sandbox2/testcases:util_communicate
+add_executable(sandbox2_testcase_util_communicate
+  util_communicate.cc
+)
+add_executable(sandbox2::testcase_util_communicate ALIAS sandbox2_testcase_util_communicate)
+set_target_properties(sandbox2_testcase_util_communicate PROPERTIES
+  OUTPUT_NAME util_communicate
+)
+target_link_libraries(sandbox2_testcase_util_communicate PRIVATE
+  sapi::base
+)
+
+# sandboxed_api/sandbox2/testcases:posix_timers
+add_executable(sandbox2_testcase_posix_timers
+  posix_timers.cc
+)
+add_executable(sandbox2::testcase_posix_timers ALIAS sandbox2_testcase_posix_timers)
+set_target_properties(sandbox2_testcase_posix_timers PROPERTIES
+  OUTPUT_NAME posix_timers
+)
+target_link_libraries(sandbox2_testcase_posix_timers PRIVATE
+  -static
+  -lrt
+  absl::check
+  absl::flags
+  absl::flags_parse
+  absl::log
+  absl::log_globals
+  absl::log_initialize
+  absl::log_severity
+  absl::strings
+  absl::time
+  sapi::base
 )

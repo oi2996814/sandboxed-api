@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,8 @@
 
 #ifndef THIRD_PARTY_SAPI_UTIL_STATUS_MACROS_H_
 #define THIRD_PARTY_SAPI_UTIL_STATUS_MACROS_H_
+
+#include <utility>
 
 #include "absl/base/optimization.h"
 #include "absl/status/status.h"
@@ -35,7 +37,7 @@
     if (ABSL_PREDICT_FALSE(!status.ok())) {     \
       return status;                            \
     }                                           \
-  } while (0);
+  } while (0)
 
 #define SAPI_ASSIGN_OR_RETURN(lhs, rexpr) \
   SAPI_ASSIGN_OR_RETURN_IMPL(             \
@@ -46,6 +48,6 @@
   if (ABSL_PREDICT_FALSE(!statusor.ok())) {              \
     return statusor.status();                            \
   }                                                      \
-  lhs = std::move(statusor).value();
+  lhs = std::move(statusor).value()
 
 #endif  // THIRD_PARTY_SAPI_UTIL_STATUS_MACROS_H_

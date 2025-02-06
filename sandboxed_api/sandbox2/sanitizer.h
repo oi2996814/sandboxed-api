@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,6 @@
 #ifndef SANDBOXED_API_SANDBOX2_SANITIZER_H_
 #define SANDBOXED_API_SANDBOX2_SANITIZER_H_
 
-#include "absl/base/macros.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -49,9 +48,6 @@ int GetNumberOfThreads(int pid);
 // already notified the sanitizer. This function does nothing if not running
 // under a sanitizer.
 void WaitForSanitizer();
-
-ABSL_DEPRECATED("Use `sandbox2::sanitizer::WaitForSanitizer()`.")
-inline void WaitForTsan() { WaitForSanitizer(); }
 
 // Sanitizes current process (which will not execve a sandboxed binary).
 // File-descriptors in fd_exceptions will be either closed

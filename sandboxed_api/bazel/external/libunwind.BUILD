@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -74,7 +74,6 @@ filegroup(
         "src/dwarf/Gfind_unwind_table.c",
         "src/dwarf/Gparser.c",
         "src/dwarf/Gpe.c",
-        "src/dwarf/Gstep.c",
         "src/dwarf/global.c",
         "src/mi/Gdestroy_addr_space.c",
         "src/mi/Gdyn-extract.c",
@@ -107,7 +106,7 @@ filegroup(
 )
 
 cc_library(
-    name = "unwind-ptrace-wrapped",
+    name = "unwind-ptrace",
     srcs = [
         "src/mi/Gdyn-remote.c",
         "src/ptrace/_UPT_access_fpreg.c",
@@ -131,7 +130,11 @@ cc_library(
     hdrs = [
         "include/config.h",
         "include/libunwind.h",
+        "include/libunwind-aarch64.h",
+        "include/libunwind-common.h",
+        "include/libunwind-dynamic.h",
         "include/libunwind-ptrace.h",
+        "include/libunwind-x86_64.h",
     ],
     copts = LIBUNWIND_COPTS + [
         # Assume our inferior doesn't have frame pointers, regardless of
@@ -139,20 +142,10 @@ cc_library(
         "-DNO_FRAME_POINTER",
         "-fno-common",
         "-Wno-cpp",  # Warning in src/ptrace/_UPT_get_dyn_info_list_addr.c
-        "-D_UPT_accessors=_UPT_accessors_wrapped",
-        "-D_UPT_create=_UPT_create_wrapped",
-        "-D_UPT_destroy=_UPT_destroy_wrapped",
-        "-D_Ux86_64_create_addr_space=_Ux86_64_create_addr_space_wrapped",
-        "-D_Ux86_64_destroy_addr_space=_Ux86_64_destroy_addr_space_wrapped",
-        "-D_Ux86_64_get_proc_name=_Ux86_64_get_proc_name_wrapped",
-        "-D_Ux86_64_get_reg=_Ux86_64_get_reg_wrapped",
-        "-D_Ux86_64_init_remote=_Ux86_64_init_remote_wrapped",
-        "-D_Ux86_64_step=_Ux86_64_step_wrapped",
-        "-Dptrace=ptrace_wrapped",
     ],
+    strip_include_prefix = "include",
     visibility = ["//visibility:public"],
     deps = [
         ":included_sources",
-        "@com_google_sandboxed_api//sandboxed_api/sandbox2/unwind:ptrace_hook",
     ],
 )

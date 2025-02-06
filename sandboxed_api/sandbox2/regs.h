@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,12 +21,10 @@
 #include <sys/types.h>
 
 #include <cstdint>
-#include <string>
 
 #include "absl/status/status.h"
 #include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/syscall.h"
-#include "sandboxed_api/sandbox2/violation.pb.h"
 
 namespace sandbox2 {
 
@@ -48,10 +46,10 @@ class Regs {
   // Converts raw register values obtained on syscall entry to syscall info
   Syscall ToSyscall(sapi::cpu::Architecture syscall_arch) const;
 
-  pid_t pid() const { return pid_; }
+  // Returns the content of the register that holds a syscall's return value
+  int64_t GetReturnValue(sapi::cpu::Architecture syscall_arch) const;
 
-  // Stores register values in a protobuf structure.
-  void StoreRegisterValuesInProtobuf(RegisterValues* values) const;
+  pid_t pid() const { return pid_; }
 
  private:
   friend class StackTracePeer;

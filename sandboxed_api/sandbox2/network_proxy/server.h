@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,8 +15,11 @@
 #ifndef SANDBOXED_API_SANDBOX2_NETWORK_PROXY_SERVER_H_
 #define SANDBOXED_API_SANDBOX2_NETWORK_PROXY_SERVER_H_
 
+#include <atomic>
 #include <memory>
+#include <string>
 
+#include "absl/functional/any_invocable.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/network_proxy/filtering.h"
 
@@ -29,7 +32,7 @@ namespace sandbox2 {
 class NetworkProxyServer {
  public:
   NetworkProxyServer(int fd, AllowedHosts* allowed_hosts,
-                     pthread_t monitor_thread_id);
+                     absl::AnyInvocable<void()> notify_violation);
 
   NetworkProxyServer(const NetworkProxyServer&) = delete;
   NetworkProxyServer& operator=(const NetworkProxyServer&) = delete;
@@ -57,7 +60,7 @@ class NetworkProxyServer {
 
   std::unique_ptr<Comms> comms_;
   bool fatal_error_;
-  pthread_t monitor_thread_id_;
+  absl::AnyInvocable<void()> notify_violation_fn_;
 
   // Contains list of allowed to connect hosts.
   AllowedHosts* allowed_hosts_;

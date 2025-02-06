@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,33 +15,20 @@
 add_subdirectory(tools/filewrapper)
 add_subdirectory(sandbox2)
 add_subdirectory(util)
-if(SAPI_ENABLE_GENERATOR)
+if(SAPI_ENABLE_CLANG_TOOL AND NOT SAPI_CLANG_TOOL_EXECUTABLE)
   add_subdirectory(tools/clang_generator)
 endif()
 add_subdirectory(examples)
 
 # sandboxed_api:config
 add_library(sapi_config ${SAPI_LIB_TYPE}
+  config.cc
   config.h
 )
 add_library(sapi::config ALIAS sapi_config)
 target_link_libraries(sapi_config
   PRIVATE sapi::base
-  INTERFACE absl::config
-)
-
-# sandboxed_api:proto_arg
-sapi_protobuf_generate_cpp(_sapi_proto_arg_pb_cc _sapi_proto_arg_pb_h
-  proto_arg.proto
-)
-add_library(sapi_proto_arg_proto ${SAPI_LIB_TYPE}
-  ${_sapi_proto_arg_pb_cc}
-  ${_sapi_proto_arg_pb_h}
-)
-add_library(sapi::proto_arg_proto ALIAS sapi_proto_arg_proto)
-target_link_libraries(sapi_proto_arg_proto PRIVATE
-  protobuf::libprotobuf
-  sapi::base
+  PUBLIC absl::config
 )
 
 # sandboxed_api:embed_file
@@ -52,18 +39,13 @@ add_library(sapi_embed_file ${SAPI_LIB_TYPE}
 )
 add_library(sapi::embed_file ALIAS sapi_embed_file)
 target_link_libraries(sapi_embed_file
-  PRIVATE absl::flat_hash_map
-          absl::status
-          absl::statusor
-          absl::strings
-          absl::synchronization
-          sapi::fileops
-          sapi::strerror
+  PRIVATE absl::strings
           sandbox2::util
           sapi::base
           sapi::raw_logging
-          sapi::status
-  PUBLIC glog::glog
+  PUBLIC absl::flat_hash_map
+         absl::synchronization
+         sapi::fileops
 )
 
 # sandboxed_api:sapi
@@ -75,23 +57,28 @@ add_library(sapi_sapi ${SAPI_LIB_TYPE}
 )
 add_library(sapi::sapi ALIAS sapi_sapi)
 target_link_libraries(sapi_sapi
-  PRIVATE absl::dynamic_annotations
+  PRIVATE absl::base
+          absl::cleanup
+          absl::dynamic_annotations
           absl::flat_hash_map
-          absl::memory
+          absl::log
+          absl::log_globals
+          absl::span
           absl::status
           absl::statusor
           absl::str_format
           absl::strings
           absl::synchronization
-          sandbox2::bpf_helper
+          sapi::call
           sapi::file_base
-          sapi::fileops
           sapi::runfiles
           sapi::strerror
           sandbox2::util
           sapi::embed_file
+          sapi::var_type
           sapi::vars
-  PUBLIC absl::core_headers
+  PUBLIC absl::check
+         absl::core_headers
          sandbox2::client
          sandbox2::sandbox2
          sapi::base
@@ -129,7 +116,6 @@ target_link_libraries(sapi_var_type PRIVATE
 
 # sandboxed_api:vars
 add_library(sapi_vars ${SAPI_LIB_TYPE}
-  proto_helper.h
   rpcchannel.cc
   rpcchannel.h
   var_abstract.cc
@@ -149,6 +135,7 @@ add_library(sapi_vars ${SAPI_LIB_TYPE}
 add_library(sapi::vars ALIAS sapi_vars)
 target_link_libraries(sapi_vars
   PRIVATE absl::core_headers
+          absl::span
           absl::status
           absl::statusor
           absl::str_format
@@ -156,13 +143,14 @@ target_link_libraries(sapi_vars
           absl::synchronization
           absl::utility
           sandbox2::comms
+          sandbox2::util
           sapi::base
           sapi::call
           sapi::lenval_core
-          sapi::proto_arg_proto
           sapi::status
           sapi::var_type
-  PUBLIC glog::glog
+  PUBLIC absl::log
+         sapi::proto_helper
 )
 
 # sandboxed_api:client
@@ -171,35 +159,52 @@ add_library(sapi_client ${SAPI_LIB_TYPE}
 )
 add_library(sapi::client ALIAS sapi_client)
 target_link_libraries(sapi_client
-  PRIVATE absl::core_headers
+  PRIVATE absl::check
+          absl::core_headers
           absl::dynamic_annotations
+          absl::flags_parse
+          absl::log
+          absl::log_flags
+          absl::log_initialize
+          absl::statusor
           absl::strings
           libffi::libffi
-          sandbox2::client
           sandbox2::comms
           sandbox2::forkingclient
           sandbox2::logsink
           sapi::base
           sapi::call
-          sapi::flags
           sapi::lenval_core
           sapi::proto_arg_proto
-          sapi::vars
+          sapi::proto_helper
           ${CMAKE_DL_LIBS}
-  PUBLIC glog::glog
 )
 
-if(SAPI_ENABLE_TESTS AND NOT CMAKE_CROSSCOMPILING)
+if(BUILD_TESTING AND SAPI_BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+  # sandboxed_api:embed_file_test
+  add_executable(embed_file_test
+    embed_file_test.cc
+  )
+  target_link_libraries(embed_file_test PRIVATE
+    absl::memory
+    absl::strings
+    sapi::embed_file
+    sapi::test_main
+  )
+
   # sandboxed_api:testing
   add_library(sapi_testing ${SAPI_LIB_TYPE}
     testing.cc
     testing.h
   )
   add_library(sapi::testing ALIAS sapi_testing)
-  target_link_libraries(sapi_testing PRIVATE
-    absl::strings
-    sapi::file_base
-    sapi::base
+  target_link_libraries(sapi_testing
+   PRIVATE absl::strings
+           sapi::file_base
+           sapi::base
+   PUBLIC sapi::config
+          sandbox2::allowlists_all_syscalls
+          sandbox2::policybuilder
   )
 
   # sandboxed_api:sapi_test
@@ -207,9 +212,9 @@ if(SAPI_ENABLE_TESTS AND NOT CMAKE_CROSSCOMPILING)
     sapi_test.cc
   )
   target_link_libraries(sapi_test PRIVATE
-    absl::memory
     absl::status
     absl::statusor
+    absl::time
     benchmark
     sandbox2::result
     sapi::proto_arg_proto
@@ -220,6 +225,7 @@ if(SAPI_ENABLE_TESTS AND NOT CMAKE_CROSSCOMPILING)
     sapi::sum_sapi
     sapi::test_main
     sapi::testing
+    sapi::thread
   )
   gtest_discover_tests_xcompile(sapi_test)
 endif()

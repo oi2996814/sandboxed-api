@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,7 @@
 
 #include <iostream>
 
-#include "sandboxed_api/util/flag.h"
+#include "absl/flags/flag.h"
 #include "uv_sapi.sapi.h"  // NOLINT(build/include)
 
 namespace {
@@ -37,10 +37,12 @@ class UVSapiUVCatSandbox : public uv::UVSandbox {
         .AllowFork()
         .AllowFutexOp(FUTEX_WAKE_PRIVATE)
         .AllowFutexOp(FUTEX_WAIT_PRIVATE)
-        .AllowMmap()
+        .AllowMmapWithoutExec()
         .AllowOpen()
-        .AllowSyscalls({__NR_epoll_create1, __NR_epoll_ctl, __NR_epoll_wait,
-                        __NR_eventfd2, __NR_pipe2, __NR_prlimit64})
+        .AllowEpoll()
+        .AllowSyscall(__NR_eventfd2)
+        .AllowPipe()
+        .AllowSyscall(__NR_prlimit64)
         .AllowWrite()
         .BuildOrDie();
   }
@@ -96,7 +98,7 @@ absl::Status UVCat(std::string filearg) {
 
 int main(int argc, char* argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  sapi::InitLogging(argv[0]);
 
   if (argc != 2) {
     LOG(ERROR) << "wrong number of arguments (1 expected)";

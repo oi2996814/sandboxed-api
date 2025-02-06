@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,10 +21,11 @@
 #include <sys/types.h>
 
 #include <bitset>
+#include <cstddef>
 #include <string>
 
 #include "absl/base/thread_annotations.h"
-#include "sandboxed_api/util/flag.h"
+#include "absl/flags/declare.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "sandboxed_api/sandbox2/comms.h"
@@ -42,11 +43,10 @@ enum class GlobalForkserverStartMode {
 class GlobalForkClient {
  public:
   GlobalForkClient(int fd, pid_t pid)
-      : comms_(fd), fork_client_(pid, &comms_) {}
+      : comms_(fd), fork_client_(pid, &comms_, /*is_global=*/true) {}
 
-  static pid_t SendRequest(const ForkRequest& request, int exec_fd,
-                           int comms_fd, int user_ns_fd = -1,
-                           pid_t* init_pid = nullptr)
+  static SandboxeeProcess SendRequest(const ForkRequest& request, int exec_fd,
+                                      int comms_fd)
       ABSL_LOCKS_EXCLUDED(instance_mutex_);
   static pid_t GetPid() ABSL_LOCKS_EXCLUDED(instance_mutex_);
 
@@ -106,6 +106,8 @@ std::string AbslUnparseFlag(GlobalForkserverStartModeSet in);
 
 }  // namespace sandbox2
 
-ABSL_DECLARE_FLAG(string, sandbox2_forkserver_start_mode);
+ABSL_DECLARE_FLAG(sandbox2::GlobalForkserverStartModeSet,
+                  sandbox2_forkserver_start_mode);
+ABSL_DECLARE_FLAG(std::string, sandbox2_forkserver_binary_path);
 
 #endif  // SANDBOXED_API_SANDBOX2_GLOBAL_FORKCLIENT_H_

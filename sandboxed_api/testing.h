@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,10 +15,11 @@
 #ifndef SANDBOXED_API_TESTING_H_
 #define SANDBOXED_API_TESTING_H_
 
-#include <cstdlib>
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "sandboxed_api/config.h"  // IWYU pragma: export
+#include "sandboxed_api/sandbox2/policybuilder.h"
 
 // The macro SKIP_SANITIZERS_AND_COVERAGE can be used in tests to skip running
 // a given test (by emitting 'return') when running under one of the sanitizers
@@ -41,20 +42,24 @@
 // The downside of this approach is that no coverage will be collected.
 // To still have coverage, pre-compile sandboxees and add them as test data,
 // then there will be no need to skip tests.
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
-    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
-#define SKIP_SANITIZERS_AND_COVERAGE return
-#else
-#define SAPI_BUILDDATA_COVERAGE_ENABLED false
-#define SKIP_SANITIZERS_AND_COVERAGE                                        \
-  do {                                                                      \
-    if (SAPI_BUILDDATA_COVERAGE_ENABLED || getenv("COVERAGE") != nullptr) { \
-      return;                                                               \
-    }                                                                       \
+#define SKIP_SANITIZERS_AND_COVERAGE                          \
+  do {                                                        \
+    if (sapi::sanitizers::IsAny() || sapi::IsCoverageRun()) { \
+      return;                                                 \
+    }                                                         \
   } while (0)
-#endif
+
+#define SKIP_SANITIZERS              \
+  do {                               \
+    if (sapi::sanitizers::IsAny()) { \
+      return;                        \
+    }                                \
+  } while (0)
 
 namespace sapi {
+
+sandbox2::PolicyBuilder CreateDefaultPermissiveTestPolicy(
+    absl::string_view bin_path);
 
 // Returns a writable path usable in tests. If the name argument is specified,
 // returns a name under that path. This can then be used for creating temporary

@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//sandboxed_api/bazel:build_defs.bzl", "sapi_platform_copts")
-load("//sandboxed_api/bazel:embed_data.bzl", "sapi_cc_embed_data")
+load("@com_google_sandboxed_api//sandboxed_api/bazel:build_defs.bzl", "sapi_platform_copts")
+load("@com_google_sandboxed_api//sandboxed_api/bazel:embed_data.bzl", "sapi_cc_embed_data")
 
 licenses(["notice"])
 
@@ -27,9 +27,9 @@ cc_binary(
     deps = [
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "//sandboxed_api/util:fileops",
-        "//sandboxed_api/util:raw_logging",
-        "//sandboxed_api/util:strerror",
+        "@com_google_sandboxed_api//sandboxed_api/util:fileops",
+        "@com_google_sandboxed_api//sandboxed_api/util:raw_logging",
+        "@com_google_sandboxed_api//sandboxed_api/util:strerror",
     ],
 )
 
@@ -46,9 +46,8 @@ cc_test(
     deps = [
         ":filewrapper_embedded",
         "@com_google_googletest//:gtest_main",
-        "@com_google_absl//absl/strings",
-        "//sandboxed_api:testing",
-        "//sandboxed_api/util:file_helpers",
-        "//sandboxed_api/util:status_matchers",
+        "@com_google_sandboxed_api//sandboxed_api:testing",
+        "@com_google_sandboxed_api//sandboxed_api/util:file_helpers",
+        "@com_google_sandboxed_api//sandboxed_api/util:status_matchers",
     ],
 )

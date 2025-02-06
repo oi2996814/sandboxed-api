@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,15 +13,23 @@
 // limitations under the License.
 
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 
-#include <glog/logging.h>
-#include "sandboxed_api/util/flag.h"
-#include "absl/memory/memory.h"
+#include <cstring>
+#include <ctime>
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "absl/base/log_severity.h"
+#include "absl/base/macros.h"
+#include "absl/flags/parse.h"
+#include "absl/log/check.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-#include "sandboxed_api/examples/sum/sandbox.h"
 #include "sandboxed_api/examples/sum/sum-sapi.sapi.h"
 #include "sandboxed_api/examples/sum/sum_params.pb.h"
 #include "sandboxed_api/transaction.h"
@@ -123,19 +131,21 @@ absl::Status SumTransaction::Main() {
   TRANSACTION_FAIL_IF_NOT(ret.GetValue() == 15, "puts('Hello World!!!') != 15");
 
   sapi::v::Int vp;
-  sapi::v::NullPtr nptr;
   LOG(INFO) << "Test whether pointer is NOT NULL - new pointers";
   SAPI_RETURN_IF_ERROR(f.testptr(vp.PtrBefore()));
   LOG(INFO) << "Test whether pointer is NULL";
-  SAPI_RETURN_IF_ERROR(f.testptr(&nptr));
+  SAPI_RETURN_IF_ERROR(f.testptr(nullptr));
 
   // Protobuf test.
   sumsapi::SumParamsProto proto;
   proto.set_a(10);
   proto.set_b(20);
   proto.set_c(30);
-  sapi::v::Proto<sumsapi::SumParamsProto> pp(proto);
-  SAPI_ASSIGN_OR_RETURN(v, f.sumproto(pp.PtrBefore()));
+  auto pp = sapi::v::Proto<sumsapi::SumParamsProto>::FromMessage(proto);
+  if (!pp.ok()) {
+    return pp.status();
+  }
+  SAPI_ASSIGN_OR_RETURN(v, f.sumproto(pp->PtrBefore()));
   LOG(INFO) << "sumproto(proto {a = 10; b = 20; c = 30}) = " << v;
   TRANSACTION_FAIL_IF_NOT(v == 60,
                           "sumproto(proto {a = 10; b = 20; c = 30}) != 60");
@@ -145,13 +155,13 @@ absl::Status SumTransaction::Main() {
   sapi::v::Fd fd(fdesc);
   SAPI_RETURN_IF_ERROR(sandbox()->TransferToSandboxee(&fd));
   LOG(INFO) << "remote_fd = " << fd.GetRemoteFd();
-  TRANSACTION_FAIL_IF_NOT(fd.GetRemoteFd() == 3, "remote_fd != 3");
+  TRANSACTION_FAIL_IF_NOT(fd.GetRemoteFd() != -1, "remote_fd == -1");
 
   fdesc = open("/proc/self/comm", O_RDONLY);
   sapi::v::Fd fd2(fdesc);
   SAPI_RETURN_IF_ERROR(sandbox()->TransferToSandboxee(&fd2));
   LOG(INFO) << "remote_fd2 = " << fd2.GetRemoteFd();
-  TRANSACTION_FAIL_IF_NOT(fd2.GetRemoteFd() == 4, "remote_fd2 != 4");
+  TRANSACTION_FAIL_IF_NOT(fd2.GetRemoteFd() != -1, "remote_fd2 == -1");
 
   // Read from fd test.
   char buffer[1024] = {0};
@@ -202,13 +212,14 @@ absl::Status test_addition(sapi::Sandbox* sandbox, int a, int b, int c) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+int main(int argc, char* argv[]) {
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  absl::ParseCommandLine(argc, argv);
+  absl::InitializeLog();
 
   absl::Status status;
 
-  sapi::BasicTransaction st{absl::make_unique<SumSapiSandbox>()};
+  sapi::BasicTransaction st(std::make_unique<SumSandbox>());
   // Using the simple transaction (and function pointers):
   CHECK(st.Run(test_addition, 1, 1, 2).ok());
   CHECK(st.Run(test_addition, 1336, 1, 1337).ok());
@@ -253,14 +264,14 @@ int main(int argc, char** argv) {
   CHECK(status.ok()) << status.message();
 
   // Using overloaded transaction class:
-  SumTransaction sapi_crash{absl::make_unique<SumSapiSandbox>(), /*crash=*/true,
+  SumTransaction sapi_crash{std::make_unique<SumSandbox>(), /*crash=*/true,
                             /*violate=*/false,
                             /*time_out=*/false};
   status = sapi_crash.Run();
   LOG(INFO) << "Final run result for crash: " << status;
   CHECK(status.code() == absl::StatusCode::kUnavailable);
 
-  SumTransaction sapi_violate{absl::make_unique<SumSapiSandbox>(),
+  SumTransaction sapi_violate{std::make_unique<SumSandbox>(),
                               /*crash=*/false,
                               /*violate=*/true,
                               /*time_out=*/false};
@@ -268,15 +279,15 @@ int main(int argc, char** argv) {
   LOG(INFO) << "Final run result for violate: " << status;
   CHECK(status.code() == absl::StatusCode::kUnavailable);
 
-  SumTransaction sapi_timeout{absl::make_unique<SumSapiSandbox>(),
+  SumTransaction sapi_timeout(std::make_unique<SumSandbox>(),
                               /*crash=*/false,
                               /*violate=*/false,
-                              /*time_out=*/true};
+                              /*time_out=*/true);
   status = sapi_timeout.Run();
   LOG(INFO) << "Final run result for timeout: " << status;
   CHECK(status.code() == absl::StatusCode::kUnavailable);
 
-  SumTransaction sapi{absl::make_unique<SumSapiSandbox>(), /*crash=*/false,
+  SumTransaction sapi{std::make_unique<SumSandbox>(), /*crash=*/false,
                       /*violate=*/false, /*time_out=*/false};
   for (int i = 0; i < 32; ++i) {
     status = sapi.Run();

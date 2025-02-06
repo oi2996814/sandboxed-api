@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,15 +15,23 @@
 #include "sandboxed_api/sandbox2/network_proxy/filtering.h"
 
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
-#include <glog/logging.h>
+#include <algorithm>
+#include <cerrno>
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include <vector>
+
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
-#include "sandboxed_api/util/os_error.h"
 #include "sandboxed_api/util/status_macros.h"
 
 namespace sandbox2 {
@@ -66,15 +74,12 @@ absl::StatusOr<std::string> AddrToString(const struct sockaddr* saddr) {
 
 static absl::Status IPStringToAddr(const std::string& ip, int address_family,
                                    void* addr) {
-  int err = inet_pton(address_family, ip.c_str(), addr);
-  if (err == 0) {
+  if (int err = inet_pton(address_family, ip.c_str(), addr); err == 0) {
     return absl::InvalidArgumentError(absl::StrCat("Invalid address: ", ip));
+  } else if (err == -1) {
+    return absl::ErrnoToStatus(errno,
+                               absl::StrCat("inet_pton() failed for ", ip));
   }
-  if (err == -1) {
-    return absl::InternalError(sapi::OsErrorMessage(
-        errno, absl::StrCat("inet_pton() failed for ", ip)));
-  }
-
   return absl::OkStatus();
 }
 
@@ -99,19 +104,19 @@ static absl::Status ParseIpAndMask(const std::string& ip_and_mask,
   }
   std::string mask_or_cidr = ip_and_mask_split[1];
 
-  const bool has_dot = !absl::StrContains(mask_or_cidr, '.');
-  if (has_dot) {  // mask_or_cidr is cidr
-    bool res = absl::SimpleAtoi<uint32_t>(mask_or_cidr, cidr);
-    if (!res || !*cidr) {
-      return absl::InvalidArgumentError(
-          absl::StrCat(mask_or_cidr, " is not a correct cidr"));
-    }
-  } else {
+  const bool has_dot = absl::StrContains(mask_or_cidr, '.');
+  if (has_dot) {
     if (mask == nullptr) {
       return absl::InvalidArgumentError(
           "mask argument of ParseIpAndMask cannot be NULL in this case");
     }
     *mask = std::string(mask_or_cidr);
+  } else {  // mask_or_cidr is cidr
+    bool res = absl::SimpleAtoi<uint32_t>(mask_or_cidr, cidr);
+    if (!res || !*cidr) {
+      return absl::InvalidArgumentError(
+          absl::StrCat(mask_or_cidr, " is not a correct cidr"));
+    }
   }
   return absl::OkStatus();
 }
@@ -191,7 +196,7 @@ absl::Status AllowedHosts::AllowIPv4(const std::string& ip,
   in_addr addr{};
   in_addr m{};
 
-  if (mask.length()) {
+  if (!mask.empty()) {
     SAPI_RETURN_IF_ERROR(IPStringToAddr(mask, AF_INET, &m));
 
     if (!IsIPv4MaskCorrect(m.s_addr)) {

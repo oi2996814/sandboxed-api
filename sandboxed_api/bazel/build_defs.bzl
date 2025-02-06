@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,8 +15,10 @@
 """General build definitions useful for the whole project."""
 
 _SAPI_LINUX_COPTS = [
+    "-Wno-deprecated-declarations",
     "-Wno-narrowing",
     "-Wno-sign-compare",
+    "-Wunused-result",
 ]
 
 def sapi_platform_copts(copts = []):
@@ -27,4 +29,4 @@ def sapi_platform_copts(copts = []):
     """
 
     # Linux only for now.
-    return select({"//conditions:default": _SAPI_LINUX_COPTS}) + copts
+    return _SAPI_LINUX_COPTS + copts

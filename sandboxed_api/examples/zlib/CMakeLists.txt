@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,7 +17,7 @@ add_sapi_library(zlib-sapi
   FUNCTIONS deflateInit_
             deflate
             deflateEnd
-  INPUTS ${ZLIB_INCLUDE_DIRS}/zlib.h
+  INPUTS "${ZLIB_INCLUDE_DIRS}/zlib.h"
   LIBRARY ZLIB::ZLIB
   LIBRARY_NAME Zlib
   NAMESPACE "sapi::zlib"
@@ -33,10 +33,13 @@ add_executable(sapi_main_zlib
 )
 set_target_properties(sapi_main_zlib PROPERTIES OUTPUT_NAME main_zlib)
 target_link_libraries(sapi_main_zlib PRIVATE
-  absl::status
   sapi::base
-  glog::glog
-  sapi::flags
+  absl::flags_parse
+  absl::log
+  absl::log_initialize
+  absl::log_severity
+  absl::status
+  absl::statusor
   sapi::sapi
   sapi::status
   sapi::zlib_sapi

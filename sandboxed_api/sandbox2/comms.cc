@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,188 +27,184 @@
 #include <syscall.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
-#include <cinttypes>
-#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
-#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
-#include "google/protobuf/message.h"
-#include "absl/base/config.h"
 #include "absl/base/dynamic_annotations.h"
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/strings/string_view.h"
+#include "google/protobuf/message_lite.h"
 #include "sandboxed_api/sandbox2/util.h"
+#include "sandboxed_api/util/fileops.h"
 #include "sandboxed_api/util/raw_logging.h"
 #include "sandboxed_api/util/status.h"
-#include "sandboxed_api/util/strerror.h"
+#include "sandboxed_api/util/status.pb.h"
+#include "sandboxed_api/util/status_macros.h"
 
 namespace sandbox2 {
 
-// Future extension point used to mark code sections that invoke syscalls that
-// potentially block.
-// Internally at Google, there is an implementation that supports light-weight
-// fibers.
 class PotentiallyBlockingRegion {
  public:
   ~PotentiallyBlockingRegion() {
     // Do nothing. Not defaulted to avoid "unused variable" warnings.
   }
 };
-
 namespace {
+
+using sapi::file_util::fileops::FDCloser;
+
 bool IsFatalError(int saved_errno) {
   return saved_errno != EAGAIN && saved_errno != EWOULDBLOCK &&
          saved_errno != EFAULT && saved_errno != EINTR &&
          saved_errno != EINVAL && saved_errno != ENOMEM;
 }
+
+int GetDefaultCommsFd() {
+  if (const char* var = getenv(Comms::kSandbox2CommsFDEnvVar); var) {
+    int fd;
+    SAPI_RAW_CHECK(absl::SimpleAtoi(var, &fd), "cannot parse comms fd var");
+    unsetenv(Comms::kSandbox2CommsFDEnvVar);
+    return fd;
+  }
+  return Comms::kSandbox2ClientCommsFD;
+}
+
+socklen_t CreateSockaddrUn(const std::string& socket_name, bool abstract_uds,
+                           sockaddr_un* sun) {
+  sun->sun_family = AF_UNIX;
+  bzero(sun->sun_path, sizeof(sun->sun_path));
+  socklen_t slen = sizeof(sun->sun_family) + strlen(socket_name.c_str());
+  if (abstract_uds) {
+    // Create an 'abstract socket address' by specifying a leading null byte.
+    // The remainder of the path is used as a unique name, but no file is
+    // created on the filesystem. No need to NUL-terminate the string. See `man
+    // 7 unix` for further explanation.
+    strncpy(&sun->sun_path[1], socket_name.c_str(), sizeof(sun->sun_path) - 1);
+    // Len is complicated - it's essentially size of the path, plus initial
+    // NUL-byte, minus size of the sun.sun_family.
+    slen++;
+  } else {
+    // Create the socket address as it was passed from the constructor.
+    strncpy(&sun->sun_path[0], socket_name.c_str(), sizeof(sun->sun_path));
+  }
+
+  // This takes care of the socket address overflow.
+  if (slen > sizeof(sockaddr_un)) {
+    SAPI_RAW_LOG(ERROR, "Socket address is too long, will be truncated");
+    slen = sizeof(sockaddr_un);
+  }
+  return slen;
+}
 }  // namespace
 
-Comms::Comms(const std::string& socket_name) : socket_name_(socket_name) {}
-
-Comms::Comms(int fd) : connection_fd_(fd) {
+Comms::Comms(int fd, absl::string_view name) : raw_comms_(RawCommsFdImpl(fd)) {
   // Generate a unique and meaningful socket name for this FD.
   // Note: getpid()/gettid() are non-blocking syscalls.
-  socket_name_ = absl::StrFormat("sandbox2::Comms:FD=%d/PID=%d/TID=%ld", fd,
-                                 getpid(), syscall(__NR_gettid));
+  if (name.empty()) {
+    name_ = absl::StrFormat("sandbox2::Comms:FD=%d/PID=%d/TID=%ld", fd,
+                            getpid(), syscall(__NR_gettid));
+  } else {
+    name_ = std::string(name);
+  }
 
   // File descriptor is already connected.
   state_ = State::kConnected;
 }
 
+Comms::Comms(Comms::DefaultConnectionTag) : Comms(GetDefaultCommsFd()) {}
+
 Comms::~Comms() { Terminate(); }
 
 int Comms::GetConnectionFD() const {
-  return connection_fd_;
+  return GetRawComms() == nullptr ? -1 : GetRawComms()->GetConnectionFD();
 }
 
-bool Comms::Listen() {
-  if (IsConnected()) {
-    return true;
-  }
+absl::StatusOr<ListeningComms> ListeningComms::Create(
+    absl::string_view socket_name, bool abstract_uds) {
+  ListeningComms comms(std::string(socket_name), abstract_uds);
+  SAPI_RETURN_IF_ERROR(comms.Listen());
+  return comms;
+}
 
-  bind_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);  // Non-blocking
-  if (bind_fd_ == -1) {
-    SAPI_RAW_PLOG(ERROR, "socket(AF_UNIX)");
-    return false;
+absl::Status ListeningComms::Listen() {
+  bind_fd_ = FDCloser(socket(AF_UNIX, SOCK_STREAM, 0));  // Non-blocking
+  if (bind_fd_.get() == -1) {
+    return absl::ErrnoToStatus(errno, "socket(AF_UNIX) failed");
   }
 
   sockaddr_un sus;
-  socklen_t slen = CreateSockaddrUn(&sus);
+  socklen_t slen = CreateSockaddrUn(socket_name_, abstract_uds_, &sus);
   // bind() is non-blocking.
-  if (bind(bind_fd_, reinterpret_cast<sockaddr*>(&sus), slen) == -1) {
-    SAPI_RAW_PLOG(ERROR, "bind(bind_fd)");
-
-    // Note: checking for EINTR on close() syscall is useless and possibly
-    // harmful, see https://lwn.net/Articles/576478/.
-    {
-      PotentiallyBlockingRegion region;
-      close(bind_fd_);
-    }
-    bind_fd_ = -1;
-    return false;
+  if (bind(bind_fd_.get(), reinterpret_cast<sockaddr*>(&sus), slen) == -1) {
+    return absl::ErrnoToStatus(errno, "bind failed");
   }
 
   // listen() non-blocking.
-  if (listen(bind_fd_, 0) == -1) {
-    SAPI_RAW_PLOG(ERROR, "listen(bind_fd)");
-    {
-      PotentiallyBlockingRegion region;
-      close(bind_fd_);
-    }
-    bind_fd_ = -1;
-    return false;
+  if (listen(bind_fd_.get(), 0) == -1) {
+    return absl::ErrnoToStatus(errno, "listen failed");
   }
 
   SAPI_RAW_VLOG(1, "Listening at: %s", socket_name_.c_str());
-  return true;
+  return absl::OkStatus();
 }
 
-bool Comms::Accept() {
-  if (IsConnected()) {
-    return true;
-  }
-
+absl::StatusOr<Comms> ListeningComms::Accept() {
   sockaddr_un suc;
   socklen_t len = sizeof(suc);
+  int connection_fd;
   {
     PotentiallyBlockingRegion region;
-    connection_fd_ = TEMP_FAILURE_RETRY(
-        accept(bind_fd_, reinterpret_cast<sockaddr*>(&suc), &len));
+    connection_fd = TEMP_FAILURE_RETRY(
+        accept(bind_fd_.get(), reinterpret_cast<sockaddr*>(&suc), &len));
   }
-  if (connection_fd_ == -1) {
-    SAPI_RAW_PLOG(ERROR, "accept(bind_fd)");
-    {
-      PotentiallyBlockingRegion region;
-      close(bind_fd_);
-    }
-    bind_fd_ = -1;
-    return false;
+  if (connection_fd == -1) {
+    return absl::ErrnoToStatus(errno, "accept failed");
   }
-
-  state_ = State::kConnected;
-
   SAPI_RAW_VLOG(1, "Accepted connection at: %s, fd: %d", socket_name_.c_str(),
-                connection_fd_);
-  return true;
+                connection_fd);
+  return Comms(connection_fd, socket_name_);
 }
 
-bool Comms::Connect() {
-  if (IsConnected()) {
-    return true;
-  }
-
-  connection_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);  // Non-blocking
-  if (connection_fd_ == -1) {
-    SAPI_RAW_PLOG(ERROR, "socket(AF_UNIX)");
-    return false;
+absl::StatusOr<Comms> Comms::Connect(const std::string& socket_name,
+                                     bool abstract_uds) {
+  FDCloser connection_fd(socket(AF_UNIX, SOCK_STREAM, 0));  // Non-blocking
+  if (connection_fd.get() == -1) {
+    return absl::ErrnoToStatus(errno, "socket(AF_UNIX)");
   }
 
   sockaddr_un suc;
-  socklen_t slen = CreateSockaddrUn(&suc);
+  socklen_t slen = CreateSockaddrUn(socket_name, abstract_uds, &suc);
   int ret;
   {
     PotentiallyBlockingRegion region;
     ret = TEMP_FAILURE_RETRY(
-        connect(connection_fd_, reinterpret_cast<sockaddr*>(&suc), slen));
+        connect(connection_fd.get(), reinterpret_cast<sockaddr*>(&suc), slen));
   }
   if (ret == -1) {
-    SAPI_RAW_PLOG(ERROR, "connect(connection_fd)");
-    {
-      PotentiallyBlockingRegion region;
-      close(connection_fd_);
-    }
-    connection_fd_ = -1;
-    return false;
+    return absl::ErrnoToStatus(errno, "connect(connection_fd)");
   }
 
-  state_ = State::kConnected;
-
-  SAPI_RAW_VLOG(1, "Connected to: %s, fd: %d", socket_name_.c_str(),
-                connection_fd_);
-  return true;
+  SAPI_RAW_VLOG(1, "Connected to: %s, fd: %d", socket_name.c_str(),
+                connection_fd.get());
+  return Comms(connection_fd.Release(), socket_name);
 }
 
 void Comms::Terminate() {
-  {
-    PotentiallyBlockingRegion region;
+  state_ = State::kTerminated;
 
-    state_ = State::kTerminated;
-
-    if (bind_fd_ != -1) {
-      close(bind_fd_);
-      bind_fd_ = -1;
-    }
-    if (connection_fd_ != -1) {
-      close(connection_fd_);
-      connection_fd_ = -1;
-    }
-  }
+  raw_comms_ = std::unique_ptr<RawComms>();
+  listening_comms_.reset();
 }
 
 bool Comms::SendTLV(uint32_t tag, size_t length, const void* value) {
@@ -231,17 +227,25 @@ bool Comms::SendTLV(uint32_t tag, size_t length, const void* value) {
 
   SAPI_RAW_VLOG(3, "Sending a TLV message, tag: 0x%08x, length: %zu", tag,
                 length);
-  {
-    absl::MutexLock lock(&tlv_send_transmission_mutex_);
-    if (!Send(&tag, sizeof(tag))) {
-      return false;
-    }
-    if (!Send(&length, sizeof(length))) {
-      return false;
-    }
-    if (length > 0 && !Send(value, length)) {
-      return false;
-    }
+
+  // To maintain consistency with `RecvTL()`, we wrap `tag` and `length` in a TL
+  // struct.
+  const InternalTLV tl = {
+      .tag = tag,
+      .len = length,
+  };
+
+  const size_t inline_size =
+      std::min(length, kSendTLVTempBufferSize - sizeof(tl));
+  uint8_t tlv[kSendTLVTempBufferSize];
+  memcpy(tlv, &tl, sizeof(tl));
+  memcpy(&tlv[sizeof(tl)], value, inline_size);
+  if (!Send(&tlv, sizeof(tl) + inline_size)) {
+    return false;
+  }
+  if (inline_size < length) {
+    return Send(reinterpret_cast<const uint8_t*>(value) + inline_size,
+                length - inline_size);
   }
   return true;
 }
@@ -253,6 +257,7 @@ bool Comms::RecvString(std::string* v) {
   }
 
   if (tag != kTagString) {
+    v->clear();
     SAPI_RAW_LOG(ERROR, "Expected (kTagString == 0x%x), got: 0x%x", kTagString,
                  tag);
     return false;
@@ -326,14 +331,12 @@ bool Comms::RecvFD(int* fd) {
       .msg_flags = 0,
   };
 
-  const auto op = [&msg](int fd) -> ssize_t {
-    PotentiallyBlockingRegion region;
-    // Use syscall, otherwise we would need to allow socketcall() on PPC.
-    return TEMP_FAILURE_RETRY(
-        util::Syscall(__NR_recvmsg, fd, reinterpret_cast<uintptr_t>(&msg), 0));
-  };
-  ssize_t len;
-  len = op(connection_fd_);
+  if (GetRawComms() == nullptr) {
+    SAPI_RAW_LOG(ERROR, "RecvFD: connection terminated");
+    return false;
+  }
+
+  ssize_t len = GetRawComms()->RawRecvMsg(&msg);
   if (len < 0) {
     if (IsFatalError(errno)) {
       Terminate();
@@ -357,7 +360,7 @@ bool Comms::RecvFD(int* fd) {
   ABSL_ANNOTATE_MEMORY_IS_INITIALIZED(&tlv, sizeof(tlv));
 
   if (tlv.tag != kTagFd) {
-    SAPI_RAW_LOG(ERROR, "Expected (kTagFD: 0x%x), got: 0x%u", kTagFd, tlv.tag);
+    SAPI_RAW_LOG(ERROR, "Expected (kTagFD: 0x%x), got: 0x%x", kTagFd, tlv.tag);
     return false;
   }
 
@@ -409,14 +412,12 @@ bool Comms::SendFD(int fd) {
   msg.msg_controllen = sizeof(fd_msg);
   msg.msg_flags = 0;
 
-  const auto op = [&msg](int fd) -> ssize_t {
-    PotentiallyBlockingRegion region;
-    // Use syscall, otherwise we would need to whitelist socketcall() on PPC.
-    return TEMP_FAILURE_RETRY(
-        util::Syscall(__NR_sendmsg, fd, reinterpret_cast<uintptr_t>(&msg), 0));
-  };
-  ssize_t len;
-  len = op(connection_fd_);
+  if (GetRawComms() == nullptr) {
+    SAPI_RAW_LOG(ERROR, "SendFD: connection terminated");
+    return false;
+  }
+
+  ssize_t len = GetRawComms()->RawSendMsg(&msg);
   if (len == -1 && errno == EPIPE) {
     Terminate();
     SAPI_RAW_LOG(ERROR, "sendmsg(SCM_RIGHTS): Peer disconnected");
@@ -437,15 +438,15 @@ bool Comms::SendFD(int fd) {
   return true;
 }
 
-bool Comms::RecvProtoBuf(google::protobuf::Message* message) {
+bool Comms::RecvProtoBuf(google::protobuf::MessageLite* message) {
   uint32_t tag;
   std::vector<uint8_t> bytes;
   if (!RecvTLV(&tag, &bytes)) {
     if (IsConnected()) {
-      SAPI_RAW_PLOG(ERROR, "RecvProtoBuf failed for (%s)", socket_name_);
+      SAPI_RAW_PLOG(ERROR, "RecvProtoBuf failed for (%s)", name_);
     } else {
       Terminate();
-      SAPI_RAW_VLOG(2, "Connection terminated (%s)", socket_name_.c_str());
+      SAPI_RAW_VLOG(2, "Connection terminated (%s)", name_.c_str());
     }
     return false;
   }
@@ -457,7 +458,7 @@ bool Comms::RecvProtoBuf(google::protobuf::Message* message) {
   return message->ParseFromArray(bytes.data(), bytes.size());
 }
 
-bool Comms::SendProtoBuf(const google::protobuf::Message& message) {
+bool Comms::SendProtoBuf(const google::protobuf::MessageLite& message) {
   std::string str;
   if (!message.SerializeToString(&str)) {
     SAPI_RAW_LOG(ERROR, "Couldn't serialize the ProtoBuf");
@@ -472,34 +473,52 @@ bool Comms::SendProtoBuf(const google::protobuf::Message& message) {
 // All methods below are private, for internal use only.
 // *****************************************************************************
 
-socklen_t Comms::CreateSockaddrUn(sockaddr_un* sun) {
-  sun->sun_family = AF_UNIX;
-  bzero(sun->sun_path, sizeof(sun->sun_path));
-  // Create an 'abstract socket address' by specifying a leading null byte. The
-  // remainder of the path is used as a unique name, but no file is created on
-  // the filesystem. No need to NUL-terminate the string.
-  // See `man 7 unix` for further explanation.
-  strncpy(&sun->sun_path[1], socket_name_.c_str(), sizeof(sun->sun_path) - 1);
+int Comms::RawCommsFdImpl::GetConnectionFD() const {
+  return connection_fd_.get();
+}
 
-  // Len is complicated - it's essentially size of the path, plus initial
-  // NUL-byte, minus size of the sun.sun_family.
-  socklen_t slen = sizeof(sun->sun_family) + strlen(socket_name_.c_str()) + 1;
-  if (slen > sizeof(sockaddr_un)) {
-    slen = sizeof(sockaddr_un);
-  }
-  return slen;
+void Comms::RawCommsFdImpl::MoveToAnotherFd() {
+  SAPI_RAW_CHECK(connection_fd_.get() != -1,
+                 "Cannot move comms fd as it's not connected");
+  FDCloser new_fd(dup(connection_fd_.get()));
+  SAPI_RAW_CHECK(new_fd.get() != -1, "Failed to move comms to another fd");
+  connection_fd_.Swap(new_fd);
+}
+
+ssize_t Comms::RawCommsFdImpl::RawSend(const void* data, size_t len) {
+  PotentiallyBlockingRegion region;
+  return TEMP_FAILURE_RETRY(write(connection_fd_.get(), data, len));
+}
+
+ssize_t Comms::RawCommsFdImpl::RawRecv(void* data, size_t len) {
+  PotentiallyBlockingRegion region;
+  return TEMP_FAILURE_RETRY(read(connection_fd_.get(), data, len));
+}
+
+ssize_t Comms::RawCommsFdImpl::RawSendMsg(const void* msg) {
+  PotentiallyBlockingRegion region;
+  // Use syscall, otherwise we would need to allow socketcall() on PPC.
+  return TEMP_FAILURE_RETRY(util::Syscall(__NR_sendmsg, connection_fd_.get(),
+                                          reinterpret_cast<uintptr_t>(msg), 0));
+}
+
+ssize_t Comms::RawCommsFdImpl::RawRecvMsg(void* msg) {
+  PotentiallyBlockingRegion region;
+  // Use syscall, otherwise we would need to allow socketcall() on PPC.
+  return TEMP_FAILURE_RETRY(util::Syscall(__NR_recvmsg, connection_fd_.get(),
+                                          reinterpret_cast<uintptr_t>(msg), 0));
 }
 
 bool Comms::Send(const void* data, size_t len) {
+  if (GetRawComms() == nullptr) {
+    SAPI_RAW_LOG(ERROR, "Send: connection terminated");
+    return false;
+  }
+
   size_t total_sent = 0;
   const char* bytes = reinterpret_cast<const char*>(data);
-  const auto op = [bytes, len, &total_sent](int fd) -> ssize_t {
-    PotentiallyBlockingRegion region;
-    return TEMP_FAILURE_RETRY(write(fd, &bytes[total_sent], len - total_sent));
-  };
   while (total_sent < len) {
-    ssize_t s;
-      s = op(connection_fd_);
+    ssize_t s = GetRawComms()->RawSend(&bytes[total_sent], len - total_sent);
     if (s == -1 && errno == EPIPE) {
       Terminate();
       // We do not expect the other end to disappear.
@@ -525,15 +544,15 @@ bool Comms::Send(const void* data, size_t len) {
 }
 
 bool Comms::Recv(void* data, size_t len) {
+  if (GetRawComms() == nullptr) {
+    SAPI_RAW_LOG(ERROR, "Recv: connection terminated");
+    return false;
+  }
+
   size_t total_recv = 0;
   char* bytes = reinterpret_cast<char*>(data);
-  const auto op = [bytes, len, &total_recv](int fd) -> ssize_t {
-    PotentiallyBlockingRegion region;
-    return TEMP_FAILURE_RETRY(read(fd, &bytes[total_recv], len - total_recv));
-  };
   while (total_recv < len) {
-    ssize_t s;
-      s = op(connection_fd_);
+    ssize_t s = GetRawComms()->RawRecv(&bytes[total_recv], len - total_recv);
     if (s == -1) {
       SAPI_RAW_PLOG(ERROR, "read");
       if (IsFatalError(errno)) {
@@ -554,12 +573,13 @@ bool Comms::Recv(void* data, size_t len) {
 
 // Internal helper method (low level).
 bool Comms::RecvTL(uint32_t* tag, size_t* length) {
-  if (!Recv(reinterpret_cast<uint8_t*>(tag), sizeof(*tag))) {
+  InternalTLV tl;
+  if (!Recv(reinterpret_cast<uint8_t*>(&tl), sizeof(tl))) {
+    SAPI_RAW_VLOG(2, "RecvTL: Can't read tag and length");
     return false;
   }
-  if (!Recv(reinterpret_cast<uint8_t*>(length), sizeof(*length))) {
-    return false;
-  }
+  *tag = tl.tag;
+  *length = tl.len;
   if (*length > GetMaxMsgSize()) {
     SAPI_RAW_LOG(ERROR, "Maximum TLV message size exceeded: (%zu > %zd)",
                  *length, GetMaxMsgSize());
@@ -588,7 +608,6 @@ bool Comms::RecvTLV(uint32_t* tag, std::string* value) {
 
 template <typename T>
 bool Comms::RecvTLVGeneric(uint32_t* tag, T* value) {
-  absl::MutexLock lock(&tlv_recv_transmission_mutex_);
   size_t length;
   if (!RecvTL(tag, &length)) {
     return false;
@@ -599,9 +618,13 @@ bool Comms::RecvTLVGeneric(uint32_t* tag, T* value) {
 }
 
 bool Comms::RecvTLV(uint32_t* tag, size_t* length, void* buffer,
-                    size_t buffer_size) {
-  absl::MutexLock lock(&tlv_recv_transmission_mutex_);
+                    size_t buffer_size, std::optional<uint32_t> expected_tag) {
   if (!RecvTL(tag, length)) {
+    return false;
+  }
+
+  if (expected_tag.has_value() && *tag != *expected_tag) {
+    SAPI_RAW_LOG(ERROR, "Expected tag: 0x%08x, got: 0x%x", *expected_tag, *tag);
     return false;
   }
 
@@ -621,14 +644,10 @@ bool Comms::RecvTLV(uint32_t* tag, size_t* length, void* buffer,
 bool Comms::RecvInt(void* buffer, size_t len, uint32_t tag) {
   uint32_t received_tag;
   size_t received_length;
-  if (!RecvTLV(&received_tag, &received_length, buffer, len)) {
+  if (!RecvTLV(&received_tag, &received_length, buffer, len, tag)) {
     return false;
   }
 
-  if (received_tag != tag) {
-    SAPI_RAW_LOG(ERROR, "Expected tag: 0x%08x, got: 0x%x", tag, received_tag);
-    return false;
-  }
   if (received_length != len) {
     SAPI_RAW_LOG(ERROR, "Expected length: %zu, got: %zu", len, received_length);
     return false;
@@ -649,6 +668,12 @@ bool Comms::SendStatus(const absl::Status& status) {
   sapi::StatusProto proto;
   sapi::SaveStatusToProto(status, &proto);
   return SendProtoBuf(proto);
+}
+
+void Comms::MoveToAnotherFd() {
+  SAPI_RAW_CHECK(GetRawComms() != nullptr,
+                 "Cannot move comms fd as it's not connected");
+  GetRawComms()->MoveToAnotherFd();
 }
 
 }  // namespace sandbox2

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,8 +17,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <string>
+#include <utility>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "sandboxed_api/testing.h"
 #include "sandboxed_api/util/fileops.h"
 #include "sandboxed_api/util/path.h"
@@ -39,7 +44,7 @@ TEST(TempFileTest, CreateTempDirTest) {
   EXPECT_THAT(path, StartsWith(prefix));
   EXPECT_THAT(file_util::fileops::Exists(path, false), IsTrue());
   EXPECT_THAT(CreateTempDir("non_existing_dir/prefix"),
-              StatusIs(absl::StatusCode::kUnknown));
+              StatusIs(absl::StatusCode::kNotFound));
 }
 
 TEST(TempFileTest, MakeTempFileTest) {
@@ -54,7 +59,7 @@ TEST(TempFileTest, MakeTempFileTest) {
   EXPECT_THAT(fcntl(fd, F_GETFD), Ne(-1));
   EXPECT_THAT(close(fd), Eq(0));
   EXPECT_THAT(CreateNamedTempFile("non_existing_dir/prefix"),
-              StatusIs(absl::StatusCode::kUnknown));
+              StatusIs(absl::StatusCode::kNotFound));
 }
 
 }  // namespace

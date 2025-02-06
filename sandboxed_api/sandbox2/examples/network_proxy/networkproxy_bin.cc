@@ -5,22 +5,27 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <sys/types.h>
-#include <syscall.h>
+#include <unistd.h>
 
+#include <cerrno>
+#include <cstdint>
 #include <cstring>
 
-#include "sandboxed_api/util/flag.h"
+#include "absl/base/log_severity.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "sandboxed_api/sandbox2/client.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/network_proxy/client.h"
 #include "sandboxed_api/util/fileops.h"
-#include "sandboxed_api/util/os_error.h"
 #include "sandboxed_api/util/status_macros.h"
 
 ABSL_FLAG(bool, connect_with_handler, true, "Connect using automatic mode.");
@@ -64,9 +69,8 @@ absl::StatusOr<struct sockaddr_in6> CreateAddres(int port) {
   saddr.sin6_family = AF_INET6;
   saddr.sin6_port = htons(port);
 
-  int err = inet_pton(AF_INET6, "::1", &saddr.sin6_addr);
-  if (err <= 0) {
-    return absl::InternalError(sapi::OsErrorMessage(errno, "socket() failed"));
+  if (int err = inet_pton(AF_INET6, "::1", &saddr.sin6_addr); err <= 0) {
+    return absl::ErrnoToStatus(errno, "socket()");
   }
   return saddr;
 }
@@ -91,7 +95,7 @@ absl::StatusOr<int> ConnectToServer(int port) {
 
   sapi::file_util::fileops::FDCloser s(socket(AF_INET6, SOCK_STREAM, 0));
   if (s.get() < 0) {
-    return absl::InternalError(sapi::OsErrorMessage(errno, "socket() failed"));
+    return absl::ErrnoToStatus(errno, "socket()");
   }
 
   if (absl::GetFlag(FLAGS_connect_with_handler)) {
@@ -106,11 +110,13 @@ absl::StatusOr<int> ConnectToServer(int port) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, false);
+int main(int argc, char* argv[]) {
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  absl::ParseCommandLine(argc, argv);
+  absl::InitializeLog();
 
   // Set-up the sandbox2::Client object, using a file descriptor (1023).
-  sandbox2::Comms comms(sandbox2::Comms::kSandbox2ClientCommsFD);
+  sandbox2::Comms comms(sandbox2::Comms::kDefaultConnection);
   sandbox2::Client sandbox2_client(&comms);
 
   // Enable sandboxing from here.

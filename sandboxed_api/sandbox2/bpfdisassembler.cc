@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,18 +14,38 @@
 
 #include "sandboxed_api/sandbox2/bpfdisassembler.h"
 
+#include <linux/bpf_common.h>
 // IWYU pragma: no_include <asm/int-ll64.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
+#include <sys/sysinfo.h>
 
 #include <cstddef>
+#include <string>
 
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 
 #define INSIDE_FIELD(what, field)               \
   ((offsetof(seccomp_data, field) == 0 ||       \
     (what) >= offsetof(seccomp_data, field)) && \
    ((what) < (offsetof(seccomp_data, field) + sizeof(seccomp_data::field))))
+
+#ifndef SECCOMP_RET_USER_NOTIF
+#define SECCOMP_RET_USER_NOTIF 0x7fc00000U /* notifies userspace */
+#endif
+
+#ifndef SECCOMP_RET_LOG
+#define SECCOMP_RET_LOG 0x7ffc0000U /* allow after logging */
+#endif
+
+#ifndef SECCOMP_RET_KILL_PROCESS
+#define SECCOMP_RET_KILL_PROCESS 0x80000000U /* kill the process */
+#endif
+
+#ifndef SECCOMP_RET_ACTION_FULL
+#define SECCOMP_RET_ACTION_FULL 0xffff0000U
+#endif
 
 namespace sandbox2 {
 namespace bpf {
@@ -94,8 +114,8 @@ std::string DecodeInstruction(const sock_filter& inst, int pc) {
   switch (inst.code) {
     case BPF_LD | BPF_W | BPF_ABS:
       if (inst.k & 3) {
-        return absl::StrCat("A := *0x", absl::Hex(inst.k),
-                            " (misaligned read)");
+        return absl::StrCat("A := data[0x", absl::Hex(inst.k),
+                            "] (misaligned load)");
       }
       if (INSIDE_FIELD(inst.k, nr)) {
         return "A := syscall number";
@@ -142,23 +162,13 @@ std::string DecodeInstruction(const sock_filter& inst, int pc) {
       return absl::StrCat("M[", inst.k, "] := X");
     case BPF_RET | BPF_K: {
       __u32 data = inst.k & SECCOMP_RET_DATA;
-#ifdef SECCOMP_RET_ACTION_FULL
       switch (inst.k & SECCOMP_RET_ACTION_FULL) {
-#ifdef SECCOMP_RET_KILL_PROCESS
         case SECCOMP_RET_KILL_PROCESS:
           return "KILL_PROCESS";
-#endif
-#else
-      switch (inst.k & SECCOMP_RET_ACTION) {
-#endif
-#ifdef SECCOMP_RET_LOG
         case SECCOMP_RET_LOG:
           return "LOG";
-#endif
-#ifdef SECCOMP_RET_USER_NOTIF
         case SECCOMP_RET_USER_NOTIF:
           return "USER_NOTIF";
-#endif
         case SECCOMP_RET_KILL:
           return "KILL";
         case SECCOMP_RET_ALLOW:

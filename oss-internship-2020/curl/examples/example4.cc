@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -92,9 +92,8 @@ absl::Status Example4() {
 
     if (still_running.GetValue()) {
       // Wait for an event or timeout
-      sapi::v::NullPtr null_ptr;
       SAPI_ASSIGN_OR_RETURN(
-          curl_code, api.curl_multi_poll_sapi(&multi_handle, &null_ptr, 0, 1000,
+          curl_code, api.curl_multi_poll_sapi(&multi_handle, nullptr, 0, 1000,
                                               numfds.PtrBoth()));
       if (curl_code != 0) {
         return absl::UnavailableError(absl::StrCat(
@@ -131,7 +130,7 @@ absl::Status Example4() {
 
 int main(int argc, char* argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  sapi::InitLogging(argv[0]);
 
   if (absl::Status status = Example4(); !status.ok()) {
     LOG(ERROR) << "Example4 failed: " << status.ToString();

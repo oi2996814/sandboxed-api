@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,22 +15,33 @@
 #ifndef SANDBOXED_API_SANDBOX2_MOUNTTREE_H_
 #define SANDBOXED_API_SANDBOX2_MOUNTTREE_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "sandboxed_api/sandbox2/mounttree.pb.h"
+#include "sandboxed_api/sandbox2/mount_tree.pb.h"
 
 namespace sandbox2 {
+
+namespace internal {
+
+bool IsSameFile(const std::string& path1, const std::string& path2);
+bool IsWritable(const MountTree::Node& node);
+bool HasSameTarget(const MountTree::Node& n1, const MountTree::Node& n2);
+bool IsEquivalentNode(const MountTree::Node& n1, const MountTree::Node& n2);
+
+}  // namespace internal
 
 class Mounts {
  public:
   Mounts() {
     MountTree::Node root;
-    root.mutable_root_node()->set_is_ro(true);
+    root.mutable_root_node()->set_writable(false);
     *mount_tree_.mutable_node() = root;
   }
 
@@ -41,10 +52,16 @@ class Mounts {
   Mounts& operator=(const Mounts&) = default;
   Mounts& operator=(Mounts&&) = default;
 
-  absl::Status AddFile(absl::string_view path, bool is_ro = true);
+  absl::Status AddFile(absl::string_view path, bool is_ro = true) {
+    return AddFileAt(path, path, is_ro);
+  }
 
   absl::Status AddFileAt(absl::string_view outside, absl::string_view inside,
                          bool is_ro = true);
+
+  absl::Status AddDirectory(absl::string_view path, bool is_ro = true) {
+    return AddDirectoryAt(path, path, is_ro);
+  }
 
   absl::Status AddDirectoryAt(absl::string_view outside,
                               absl::string_view inside, bool is_ro = true);
@@ -54,17 +71,19 @@ class Mounts {
 
   absl::Status AddTmpfs(absl::string_view inside, size_t sz);
 
+  absl::Status Remove(absl::string_view path);
+
   void CreateMounts(const std::string& root_path) const;
 
   MountTree GetMountTree() const { return mount_tree_; }
 
   void SetRootWritable() {
-    mount_tree_.mutable_node()->mutable_root_node()->set_is_ro(false);
+    mount_tree_.mutable_node()->mutable_root_node()->set_writable(true);
   }
 
   bool IsRootReadOnly() const {
     return mount_tree_.has_node() && mount_tree_.node().has_root_node() &&
-           mount_tree_.node().root_node().is_ro();
+           !mount_tree_.node().root_node().writable();
   }
 
   // Lists the outside and inside entries of the input tree in the output
@@ -75,7 +94,7 @@ class Mounts {
   // inside_entries[i]. The elements of inside_entries are prefixed with either
   // 'R' (read-only) or 'W' (writable).
   void RecursivelyListMounts(std::vector<std::string>* outside_entries,
-                             std::vector<std::string>* inside_entries);
+                             std::vector<std::string>* inside_entries) const;
 
   absl::StatusOr<std::string> ResolvePath(absl::string_view path) const;
 
@@ -85,6 +104,7 @@ class Mounts {
   absl::Status Insert(absl::string_view path, const MountTree::Node& node);
 
   MountTree mount_tree_;
+  int64_t mount_index_ = 0;  // Used to keep track of the mount insertion order
 };
 
 }  // namespace sandbox2

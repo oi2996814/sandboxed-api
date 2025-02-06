@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +15,6 @@
 #ifndef SANDBOXED_API_SANDBOX2_EXECUTOR_H_
 #define SANDBOXED_API_SANDBOX2_EXECUTOR_H_
 
-#include <stdlib.h>
 #include <unistd.h>
 
 #include <memory>
@@ -23,11 +22,14 @@
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
 #include "absl/base/macros.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "sandboxed_api/sandbox2/fork_client.h"
+#include "sandboxed_api/sandbox2/forkserver.pb.h"
 #include "sandboxed_api/sandbox2/ipc.h"
 #include "sandboxed_api/sandbox2/limits.h"
 #include "sandboxed_api/sandbox2/namespace.h"
@@ -38,6 +40,7 @@ namespace sandbox2 {
 // The sandbox2::Executor class is responsible for both creating and executing
 // new processes which will be sandboxed.
 class Executor final {
+
  public:
   Executor(const Executor&) = delete;
   Executor& operator=(const Executor&) = delete;
@@ -56,8 +59,9 @@ class Executor final {
 
   // Executor will own this file-descriptor, so if intend to use it, pass here
   // dup(fd) instead
-  Executor(int exec_fd, absl::Span<const std::string> argv,
-           absl::Span<const std::string> envp)
+  Executor(
+      int exec_fd, absl::Span<const std::string> argv,
+      absl::Span<const std::string> envp = absl::MakeConstSpan(CopyEnviron()))
       : exec_fd_(exec_fd),
         argv_(argv.begin(), argv.end()),
         envp_(envp.begin(), envp.end()) {
@@ -94,14 +98,18 @@ class Executor final {
     return *this;
   }
 
+  int libunwind_recursion_depth() { return libunwind_recursion_depth_; }
+
  private:
-  friend class Monitor;
+  friend class MonitorBase;
+  friend class PtraceMonitor;
   friend class StackTracePeer;
 
   // Internal constructor for executing libunwind on the given pid
   // enable_sandboxing_pre_execve=false as we are not going to execve.
-  explicit Executor(pid_t libunwind_sbox_for_pid)
+  explicit Executor(pid_t libunwind_sbox_for_pid, int libunwind_recursion_depth)
       : libunwind_sbox_for_pid_(libunwind_sbox_for_pid),
+        libunwind_recursion_depth_(libunwind_recursion_depth),
         enable_sandboxing_pre_execve_(false) {
     CHECK_GE(libunwind_sbox_for_pid_, 0);
     SetUpServerSideCommsFd();
@@ -117,14 +125,10 @@ class Executor final {
   // Starts a new process which is connected with this Executor instance via a
   // Comms channel.
   // For clone_flags refer to Linux' 'man 2 clone'.
-  //
-  // caps is a vector of capabilities that are kept in the permitted set after
-  // the clone, use with caution.
-  //
-  // Returns the same values as fork().
-  pid_t StartSubProcess(int clone_flags, const Namespace* ns = nullptr,
-                        const std::vector<int>& caps = {},
-                        pid_t* init_pid_out = nullptr);
+  absl::StatusOr<SandboxeeProcess> StartSubProcess(
+      int clone_flags, const Namespace* ns = nullptr,
+      bool allow_speculation = false,
+      MonitorType type = FORKSERVER_MONITOR_PTRACE);
 
   // Whether the Executor has been started yet
   bool started_ = false;
@@ -132,6 +136,7 @@ class Executor final {
   // If this executor is running the libunwind sandbox for a process,
   // this variable will hold the PID of the process. Otherwise it is zero.
   pid_t libunwind_sbox_for_pid_ = 0;
+  int libunwind_recursion_depth_ = 0;
 
   // Should the sandboxing be enabled before execve() occurs, or the binary will
   // do it by itself, using the Client object's methods
