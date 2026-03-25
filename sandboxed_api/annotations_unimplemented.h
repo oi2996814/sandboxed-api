@@ -51,4 +51,8 @@
 #define SANDBOX_LIFETIME_BOUND(opaque_other) \
   [[clang::annotate("sandbox", "lifetime_bound", #opaque_other)]]
 
+// This annotation is only used for testing purposes. Please do not use it.
+#define SANDBOX_UNIMPLEMENTED_TEST \
+  [[clang::annotate("sandbox", "unimplemented_test")]]
+
 #endif  // SANDBOXED_API_ANNOTATIONS_UNIMPLEMENTED_H_

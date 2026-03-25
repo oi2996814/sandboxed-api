@@ -26,6 +26,7 @@
 
 #include "absl/strings/string_view.h"
 #include "sandboxed_api/annotations.h"
+#include "sandboxed_api/annotations_unimplemented.h"
 
 bool mylib_is_sandboxed();
 
@@ -46,5 +47,11 @@ void mylib_unexpected_syscall2();
 // This function is not supported, but we will exclude it using
 // SANDBOX_FUNCS/SANDBOX_IGNORE_FUNCS annotations.
 void mylib_func_with_unsupported_arg(union mylib_union* arg);
+
+// This function has a SANDBOX_UNSUPPORTED annotation and should be ignored
+// without causing errors.
+SANDBOX_UNSUPPORTED("This function is not supported for testing purposes.")
+void mylib_func_with_todo(
+    const char* arg SANDBOX_UNIMPLEMENTED_TEST SANDBOX_IN_PTR);
 
 #endif  // SANDBOXED_API_SANDBOX2_TESTCASES_REPLACED_LIBRARY_H_

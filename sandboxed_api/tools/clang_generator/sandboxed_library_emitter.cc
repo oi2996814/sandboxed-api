@@ -776,10 +776,13 @@ absl::Status SandboxedLibraryEmitter::AddFunction(clang::FunctionDecl* decl) {
   // Also check that they are consistent with the other annotations.
   // If it is a HOST thunk, it needs to be attached to the original function.
 
+  bool has_unsupported_annotation = false;
   auto annotations_status = GetSandboxAnnotations(decl);
   if (annotations_status.ok()) {
     for (const auto& ann : *annotations_status) {
-      if (ann.name == "host_thunk") {
+      if (ann.name == "unsupported") {
+        has_unsupported_annotation = true;
+      } else if (ann.name == "host_thunk") {
         if (ann.args.empty()) {
           return absl::NotFoundError(
               "Host thunk doesn't not specify the function name.");
@@ -854,6 +857,10 @@ absl::Status SandboxedLibraryEmitter::AddFunction(clang::FunctionDecl* decl) {
       // original declaration.
       return absl::OkStatus();
     }
+  }
+
+  if (has_unsupported_annotation) {
+    return absl::OkStatus();
   }
 
   if (ignore_funcs_.contains(decl->getNameAsString()) ||
