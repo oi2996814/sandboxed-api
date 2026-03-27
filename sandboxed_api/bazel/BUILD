@@ -13,6 +13,10 @@
 # limitations under the License.
 
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load(
+    "@bazel_skylib//rules:common_settings.bzl",
+    "string_list_setting",
+)
 
 licenses(["notice"])
 
@@ -60,6 +64,7 @@ bzl_library(
         ":build_defs_bzl",
         ":embed_data_bzl",
         ":proto_bzl",
+        "@bazel_skylib//rules:common_settings",
         "@bazel_tools//tools/cpp:toolchain_utils.bzl",
         "@rules_cc//cc:core_rules",
         "@rules_cc//cc/common",
@@ -70,4 +75,14 @@ bzl_library(
     name = "llvm_config_bzl",
     srcs = ["llvm_config.bzl"],
     visibility = ["//visibility:private"],
+)
+
+string_list_setting(
+    name = "lib_sandboxing_enable",
+    build_setting_default = [],
+)
+
+string_list_setting(
+    name = "lib_sandboxing_disable",
+    build_setting_default = [],
 )

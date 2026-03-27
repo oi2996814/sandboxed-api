@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//sandboxed_api/bazel:sapi.bzl", "cc_sandboxed_library", "cc_sandboxed_library_test")
 
 package(default_visibility = ["//visibility:private"])
 
 licenses(["notice"])
 
-cc_library(
-    name = "replaced_library",
+cc_sandboxed_library(
+    name = "replacement_library",
     srcs = ["replaced_library.cc"],
     hdrs = ["replaced_library.h"],
+    annotations = ["lwbox_sandbox.cc"],
     deps = [
         "//sandboxed_api:annotations",
         "@abseil-cpp//absl/strings:string_view",
@@ -30,29 +30,26 @@ cc_library(
 )
 
 cc_sandboxed_library(
-    name = "replacement_library",
-    srcs = ["lwbox_sandbox.cc"],
-    lib = ":replaced_library",
-)
-
-cc_sandboxed_library(
     name = "replacement_library2",
-    srcs = ["lwbox_ignore.cc"],
-    lib = ":replaced_library",
+    srcs = ["replaced_library.cc"],
+    hdrs = ["replaced_library.h"],
+    annotations = ["lwbox_ignore.cc"],
+    deps = [
+        "//sandboxed_api:annotations",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
 )
 
 cc_sandboxed_library_test(
-    name = "replaced_test",
+    name = "replacement_test",
     srcs = ["replaced_library_test.cc"],
-    lib = ":replaced_library",
-    sandboxed_lib = ":replacement_library",
+    lib = ":replacement_library",
     deps = ["@googletest//:gtest_main"],
 )
 
 cc_sandboxed_library_test(
-    name = "replaced2_test",
+    name = "replacement2_test",
     srcs = ["replaced_library_test.cc"],
-    lib = ":replaced_library",
-    sandboxed_lib = ":replacement_library2",
+    lib = ":replacement_library2",
     deps = ["@googletest//:gtest_main"],
 )
