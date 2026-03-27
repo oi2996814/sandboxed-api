@@ -18,6 +18,7 @@
 #include <string>
 
 #include "gtest/gtest.h"
+#include "sandboxed_api/tests/testcases/replaced_library_enum.h"
 
 namespace {
 
@@ -26,6 +27,10 @@ TEST(Test, Add) {
   EXPECT_EQ(mylib_add(-1, -2), -3);
   EXPECT_EQ(mylib_add(std::numeric_limits<int>::min() + 1, -1),
             std::numeric_limits<int>::min());
+}
+
+TEST(Test, Enum) {
+  EXPECT_EQ(mylib_take_enum(MYLIB_ENUM_VALUE_1), MYLIB_ENUM_VALUE_1);
 }
 
 TEST(Test, Copy) {

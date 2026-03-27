@@ -141,6 +141,12 @@ absl::NoDestructor<llvm::cl::opt<std::string>> g_host_src_out(
         "Output path of the generated sandboxed library host source file."),
     llvm::cl::cat(*g_tool_category));
 
+absl::NoDestructor<llvm::cl::list<std::string>> g_library_headers(
+    "library_headers", llvm::cl::CommaSeparated,
+    llvm::cl::desc("List of library headers to include the the generated "
+                   "sandboxee files."),
+    llvm::cl::cat(*g_tool_category));
+
 }  // namespace
 
 GeneratorOptions GeneratorOptionsFromFlags(
@@ -148,6 +154,7 @@ GeneratorOptions GeneratorOptionsFromFlags(
   GeneratorOptions options;
   options.work_dir = file_util::fileops::GetCWD();
   options.set_function_names(*g_sapi_functions);
+  options.set_library_headers(*g_library_headers);
   for (const auto& input : sources) {
     // Keep absolute paths as is, turn
     options.in_files.insert(absl::StartsWith(input, "/")

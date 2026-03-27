@@ -26,6 +26,7 @@
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "sandboxed_api/tests/testcases/replaced_library_enum.h"
 
 bool mylib_is_sandboxed() {
   // Magic sandbox2 syscall number.
@@ -36,6 +37,8 @@ bool mylib_is_sandboxed() {
 
 void mylib_scalar_types(int a0, float a1, double a2, int64_t a3, char a4,
                         bool a5, size_t a6) {}
+
+MyLibEnum mylib_take_enum(MyLibEnum e) { return e; }
 
 std::string mylib_copy(const std::string& src) { return src; }
 

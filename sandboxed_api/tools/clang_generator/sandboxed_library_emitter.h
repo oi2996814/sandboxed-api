@@ -98,6 +98,8 @@ class SandboxedLibraryEmitter : public EmitterBase {
   absl::Status AddVar(clang::VarDecl* decl) override;
   static void EmitFuncDecl(std::string& out, const Func& func);
   static void EmitWrapperDecl(std::string& out, const Func& func);
+  void EmitLibraryHeaders(const GeneratorOptions& options,
+                          std::string& out) const;
   absl::StatusOr<std::string> Finalize(const std::string& body, bool is_header,
                                        bool add_includes) const;
   absl::StatusOr<ArgPtr> Convert(absl::string_view name, clang::QualType type,

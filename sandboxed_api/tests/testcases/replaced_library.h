@@ -27,6 +27,7 @@
 #include "absl/strings/string_view.h"
 #include "sandboxed_api/annotations.h"
 #include "sandboxed_api/annotations_unimplemented.h"
+#include "sandboxed_api/tests/testcases/replaced_library_enum.h"
 
 bool mylib_is_sandboxed();
 
@@ -38,6 +39,8 @@ void mylib_copy(absl::string_view src, std::string& dst);
 void mylib_copy_raw(const char* src SANDBOX_IN_PTR SANDBOX_ELEM_SIZED_BY(size),
                     char* dst SANDBOX_OUT_PTR SANDBOX_ELEM_SIZED_BY(size),
                     size_t size);
+
+MyLibEnum mylib_take_enum(MyLibEnum e);
 
 void mylib_expected_syscall1();
 void mylib_expected_syscall2();

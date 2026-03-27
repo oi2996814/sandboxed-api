@@ -33,8 +33,6 @@
 #include "clang/Serialization/PCHContainerOperations.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Config/llvm-config.h"
-#include "sandboxed_api/tools/clang_generator/emitter.h"
 #include "sandboxed_api/tools/clang_generator/emitter_base.h"
 #include "sandboxed_api/tools/clang_generator/types.h"
 
@@ -45,6 +43,13 @@ struct GeneratorOptions {
   GeneratorOptions& set_function_names(const ContainerT& value) {
     function_names.clear();
     function_names.insert(std::begin(value), std::end(value));
+    return *this;
+  }
+
+  template <typename ContainerT>
+  GeneratorOptions& set_library_headers(const ContainerT& value) {
+    library_headers.clear();
+    library_headers.insert(std::begin(value), std::end(value));
     return *this;
   }
 
@@ -65,6 +70,7 @@ struct GeneratorOptions {
   bool has_sandboxee_src_out() const { return !sandboxee_src_out.empty(); }
 
   absl::flat_hash_set<std::string> function_names;
+  absl::flat_hash_set<std::string> library_headers;
   absl::flat_hash_set<std::string> in_files;
   bool limit_scan_depth = false;
   bool symbol_list_gen = false;

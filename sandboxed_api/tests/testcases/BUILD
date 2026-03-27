@@ -21,7 +21,10 @@ licenses(["notice"])
 cc_sandboxed_library(
     name = "replacement_library",
     srcs = ["replaced_library.cc"],
-    hdrs = ["replaced_library.h"],
+    hdrs = [
+        "replaced_library.h",
+        "replaced_library_enum.h",
+    ],
     annotations = ["lwbox_sandbox.cc"],
     deps = [
         "//sandboxed_api:annotations",
@@ -32,7 +35,10 @@ cc_sandboxed_library(
 cc_sandboxed_library(
     name = "replacement_library2",
     srcs = ["replaced_library.cc"],
-    hdrs = ["replaced_library.h"],
+    hdrs = [
+        "replaced_library.h",
+        "replaced_library_enum.h",
+    ],
     annotations = ["lwbox_ignore.cc"],
     deps = [
         "//sandboxed_api:annotations",

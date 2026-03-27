@@ -627,6 +627,7 @@ def cc_sandboxed_library(
         srcs = [
             name + ".sapi.host.cc",
         ],
+        limit_scan_depth = True,
         generator_version = 2,
         deps = [
             "//sandboxed_api:lenval_core",
@@ -751,6 +752,7 @@ def _sandboxed_library_gen_impl(ctx):
     args.append("--host_src_out={}".format(ctx.outputs.host_src_out.path))
     args.append("--sapi_out={}".format(ctx.attr.sapi_hdr))
     args.append("--sapi_limit_scan_depth")
+    args.append("--library_headers=" + ",".join(_lib_direct_headers(ctx.attr.lib, cc_ctx)))
 
     # Note: the srcs files on the cc_sandboxed_library should go first
     # b/c they may alter how the library headers are interpreted.

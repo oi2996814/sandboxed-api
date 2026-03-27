@@ -424,9 +424,22 @@ struct PointerArg : SandboxedLibraryEmitter::Arg {
   }
 };
 
+void SandboxedLibraryEmitter::EmitLibraryHeaders(
+    const GeneratorOptions& options, std::string& out) const {
+  std::vector<std::string> sorted_headers(options.library_headers.begin(),
+                                          options.library_headers.end());
+  std::sort(sorted_headers.begin(), sorted_headers.end());
+  for (const auto& header : sorted_headers) {
+    absl::StrAppendFormat(&out, "#include \"%s\"\n", header);
+  }
+}
+
 absl::StatusOr<std::string> SandboxedLibraryEmitter::EmitSandboxeeHdr(
     const GeneratorOptions& options) const {
   std::string out;
+
+  EmitLibraryHeaders(options, out);
+
   for (const auto* func : SortedFuncs()) {
     EmitWrapperDecl(out, *func);
     out += ";\n\n";
@@ -437,6 +450,9 @@ absl::StatusOr<std::string> SandboxedLibraryEmitter::EmitSandboxeeHdr(
 absl::StatusOr<std::string> SandboxedLibraryEmitter::EmitSandboxeeSrc(
     const GeneratorOptions& options) const {
   std::string out;
+
+  EmitLibraryHeaders(options, out);
+
   if (sandboxee_code_) {
     out += *sandboxee_code_;
   }
