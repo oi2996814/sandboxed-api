@@ -20,9 +20,11 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/overload.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -61,8 +63,10 @@ constexpr absl::string_view kWrapperPrefix = "sapi_wrapper_";
 // This can be used to strip the annotations from the input string.
 std::string StripAnnotations(const std::string& input) {
   static const auto* macros_no_args = new std::vector<std::string>{
-      "SANDBOX_IN_PTR",     "SANDBOX_OUT_PTR",         "SANDBOX_INOUT_PTR",
-      "SANDBOX_OPAQUE_PTR", "SANDBOX_HOST_OPAQUE_PTR", "SANDBOX_HOST_STATE_VAR",
+      "SANDBOX_IN_PTR",          "SANDBOX_OUT_PTR",
+      "SANDBOX_INOUT_PTR",       "SANDBOX_OPAQUE_PTR",
+      "SANDBOX_HOST_OPAQUE_PTR", "SANDBOX_HOST_STATE_VAR",
+      "SANDBOX_NULL_TERMINATED",
   };
   std::string output = input;
   for (const auto& macro : *macros_no_args) {
@@ -336,6 +340,29 @@ struct StringViewArg : SandboxedLibraryEmitter::Arg {
   }
   std::string EmitSandboxeeArgs() const override {
     return absl::Substitute("std::string_view($0_data, $0_size)", name_);
+  }
+};
+
+// A null-terminated C string. These are always "input" to the library.
+struct ConstCStrArg : SandboxedLibraryEmitter::Arg {
+  ConstCStrArg(absl::string_view name, PointerDir ptr_dir)
+      : Arg(name, "const char*") {
+    if (ptr_dir != PointerDir::kIn) {
+      LOG(FATAL) << "ConstCStrArg pointer direction must be kIn";
+    }
+  }
+
+  std::string EmitHostPreCall() const override {
+    return absl::Substitute("sapi::v::ConstCStr sapi_tmp_$0($0);\n", name_);
+  }
+  std::string EmitHostArgs() const override {
+    return absl::Substitute("sapi_tmp_$0.PtrBefore()", name_);
+  }
+  std::string EmitSandboxeeParams() const override {
+    return absl::Substitute("$0 $1", type_, name_);
+  }
+  std::string EmitSandboxeeArgs() const override {
+    return absl::Substitute("$0", name_);
   }
 };
 
@@ -1090,8 +1117,14 @@ SandboxedLibraryEmitter::ConvertImpl(absl::string_view name,
     // Check whether this pointer even needs syncing or is an opaque handle.
     if (annotations.ptr_dir == PointerDir::kSandboxOpaque ||
         annotations.ptr_dir == PointerDir::kHostOpaque) {
+      // Shouldn't be elem_sized_by or null_terminated.
+      if (!std::holds_alternative<std::monostate>(annotations.size_type)) {
+        return absl::InvalidArgumentError(absl::Substitute(
+            "pointer argument $0 is opaque and should not be sized (kind $1)",
+            name, annotations.size_type.index()));
+      }
       return std::make_unique<PointerArg>(name, type_name, *annotations.ptr_dir,
-                                          annotations.elem_sized_by);
+                                          std::nullopt);
     }
 
     if (!type->getPointeeType()->isArithmeticType()) {
@@ -1109,8 +1142,36 @@ SandboxedLibraryEmitter::ConvertImpl(absl::string_view name,
       return absl::InvalidArgumentError(
           absl::Substitute("pointer argument $0 has unknown direction", name));
     }
-    return std::make_unique<PointerArg>(name, type_name, *ptr_dir,
-                                        annotations.elem_sized_by);
+    return std::visit(
+        absl::Overload{[&](const std::monostate&)
+                           -> absl::StatusOr<SandboxedLibraryEmitter::ArgPtr> {
+                         return std::make_unique<PointerArg>(
+                             name, type_name, *ptr_dir, std::nullopt);
+                       },
+                       [&](const ElemSizedBy& elem_sized_by)
+                           -> absl::StatusOr<SandboxedLibraryEmitter::ArgPtr> {
+                         return std::make_unique<PointerArg>(
+                             name, type_name, *ptr_dir, elem_sized_by.expr);
+                       },
+                       [&](const NullTerminated&)
+                           -> absl::StatusOr<SandboxedLibraryEmitter::ArgPtr> {
+                         if (ptr_dir != PointerDir::kIn) {
+                           return absl::InvalidArgumentError(absl::Substitute(
+                               "pointer argument $0 is null-terminated but not "
+                               "an input pointer ($1)",
+                               name, *ptr_dir));
+                         }
+                         // For now only handle `const char*` (vs `char*`)
+                         if (!type->getPointeeType()->isCharType() ||
+                             !type->getPointeeType().isConstQualified()) {
+                           return absl::InvalidArgumentError(absl::Substitute(
+                               "pointer argument $0 is null-terminated but not "
+                               "a const char*",
+                               name));
+                         }
+                         return std::make_unique<ConstCStrArg>(name, *ptr_dir);
+                       }},
+        annotations.size_type);
   }
   return nullptr;
 }
@@ -1173,9 +1234,19 @@ SandboxedLibraryEmitter::ParseAnnotations(absl::string_view name,
       annotations.ptr_dir = PointerDir::kHostOpaque;
     } else if (ann.name == "elem_sized_by") {
       num_args = 2;
-      if (!ann.args.empty()) {
-        annotations.elem_sized_by = ann.args[0];
+      if (!std::holds_alternative<std::monostate>(annotations.size_type)) {
+        return absl::InvalidArgumentError(absl::Substitute(
+            "arg $0: cannot be both null-terminated and elem_sized_by", name));
       }
+      if (!ann.args.empty()) {
+        annotations.size_type = ElemSizedBy{ann.args[0]};
+      }
+    } else if (ann.name == "null_terminated") {
+      if (!std::holds_alternative<std::monostate>(annotations.size_type)) {
+        return absl::InvalidArgumentError(absl::Substitute(
+            "arg $0: cannot be both null-terminated and elem_sized_by", name));
+      }
+      annotations.size_type = NullTerminated{};
     } else {
       num_args = 0;
     }

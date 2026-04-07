@@ -47,4 +47,12 @@ TEST(Test, Copy) {
   EXPECT_EQ(std::string(dst_buf, sizeof(dst_buf)), "telle");
 }
 
+TEST(Test, NullTerminatedStrlen) {
+  EXPECT_EQ(mylib_strlen(""), 0);
+  EXPECT_EQ(mylib_strlen("hello"), 5);
+
+  char buf[12] = {'h', 'e', 'l', 'l', 'o', '\n', 't', 'h', 'e', 'r', 'e', '\0'};
+  EXPECT_EQ(mylib_strlen(buf), 11);
+}
+
 }  // namespace

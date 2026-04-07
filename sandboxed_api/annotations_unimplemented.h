@@ -39,10 +39,6 @@
 // to the sandboxee.
 #define SANDBOX_CALLBACK [[clang::annotate("sandbox", "callback")]]
 
-// TODO(b/491826252): Annotation for null-terminated strings.
-#define SANDBOX_NULL_TERMINATED \
-  [[clang::annotate("sandbox", "null_terminated")]]
-
 // TODO(b/491826267): Annotation for return values that alias a parameter.
 #define SANDBOX_ALIAS_PTR [[clang::annotate("sandbox", "alias_ptr")]]
 

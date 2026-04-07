@@ -40,6 +40,8 @@ void mylib_copy_raw(const char* src SANDBOX_IN_PTR SANDBOX_ELEM_SIZED_BY(size),
                     char* dst SANDBOX_OUT_PTR SANDBOX_ELEM_SIZED_BY(size),
                     size_t size);
 
+size_t mylib_strlen(const char* str SANDBOX_IN_PTR SANDBOX_NULL_TERMINATED);
+
 MyLibEnum mylib_take_enum(MyLibEnum e);
 
 void mylib_expected_syscall1();

@@ -50,6 +50,8 @@ void mylib_copy_raw(const char* src, char* dst, size_t size) {
   memcpy(dst, src, size);
 }
 
+size_t mylib_strlen(const char* str) { return strlen(str); }
+
 int mylib_add(int x, int y) { return x + y; }
 
 // Sanitizer instrumentation may break argument value tracking.

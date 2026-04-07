@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -89,9 +90,15 @@ class SandboxedLibraryEmitter : public EmitterBase {
     ~Func();
   };
 
+  struct ElemSizedBy {
+    std::string expr;
+  };
+
+  struct NullTerminated {};
+
   struct Annotations {
     std::optional<PointerDir> ptr_dir;
-    std::optional<std::string> elem_sized_by;
+    std::variant<std::monostate, ElemSizedBy, NullTerminated> size_type;
   };
 
   absl::Status AddFunction(clang::FunctionDecl* decl) override;

@@ -72,6 +72,15 @@
 #define SANDBOX_ELEM_SIZED_BY(elem_size_arg) \
   [[clang::annotate("sandbox", "elem_sized_by", #elem_size_arg)]]
 
+// Pointer argument annotations that denote the pointee data is a
+// null-terminated C string. Only `const char*` parameters are supported.
+// The annotation does not support return types for now.
+//
+// For example:
+//   int my_open(const char* path SANDBOX_IN_PTR SANDBOX_NULL_TERMINATED);
+#define SANDBOX_NULL_TERMINATED \
+  [[clang::annotate("sandbox", "null_terminated")]]
+
 // Annotations for sandboxee and host thunks.
 // These just mean that we also emit these into the sandbox / host code.
 // They can be used to hook function calls.
