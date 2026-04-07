@@ -80,8 +80,14 @@ class %1$s : public ::sapi::Sandbox<::sapi::Sandbox2Backend> {
   %1$s()
       : %1$s(::sapi::SandboxConfig{}) {}
   %1$s(::sapi::SandboxConfig config)
-      : ::sapi::Sandbox<::sapi::Sandbox2Backend>(
-          ConfigWithForkClientContext(std::move(config))) {}
+      : %1$s(::sapi::Sandbox2Backend(
+                ConfigWithForkClientContext(std::move(config)),
+                [this] { return CreateNotifier(); })) {}
+  // This constructor should only be used for special cases, e.g. when using the
+  // CreateNotifier() method. Otherwise, prefer to use the SandboxConfig
+  // constructor above.
+  %1$s(::sapi::Sandbox2Backend backend)
+      : ::sapi::Sandbox<::sapi::Sandbox2Backend>(std::move(backend)) {}
 
  private:
   static ::sapi::SandboxConfig ConfigWithForkClientContext(

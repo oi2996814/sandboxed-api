@@ -178,6 +178,12 @@ class Sandbox : public SandboxBase {
       : SandboxBase(),
         backend_(std::move(config), [this] { return CreateNotifier(); }) {}
 
+  // This constructor should only be used for special cases, e.g. when using the
+  // CreateNotifier() method of the Sandbox2Backend. Otherwise, prefer to use
+  // the SandboxConfig constructor above.
+  explicit Sandbox(Backend backend)
+      : SandboxBase(), backend_(std::move(backend)) {}
+
   Sandbox(const Sandbox&) = delete;
   Sandbox& operator=(const Sandbox&) = delete;
 
@@ -209,11 +215,12 @@ class Sandbox : public SandboxBase {
   Backend& backend() { return backend_; }
   const Backend& backend() const { return backend_; }
 
- private:
-  Backend backend_;
-
+ protected:
   ABSL_DEPRECATED("Override CreateNotifier() in Sandbox2Backend instead")
   virtual std::unique_ptr<sandbox2::Notify> CreateNotifier() { return nullptr; }
+
+ private:
+  Backend backend_;
 };
 
 template <typename Backend>

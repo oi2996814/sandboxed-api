@@ -44,6 +44,9 @@ class Sandbox2Backend {
 
   virtual ~Sandbox2Backend();
 
+  Sandbox2Backend(Sandbox2Backend&&) = default;
+  Sandbox2Backend& operator=(Sandbox2Backend&&) = default;
+
   // Initializes a new sandboxing session.
   absl::Status Init();
 
