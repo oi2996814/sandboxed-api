@@ -190,6 +190,11 @@ absl::StatusOr<std::vector<std::string>> StackTracePeer::LaunchLibunwindSandbox(
   auto executor = absl::WrapUnique(new Executor(pid, recursion_depth));
 
   executor->limits()->set_rlimit_cpu(10).set_walltime_limit(absl::Seconds(5));
+  // See b/492118811.
+  // When running sandboxes concurrently, we might get a problem with sending
+  // the unotify file descriptor in the unwind sandbox, as we might exceed the
+  // maximum number of file descriptors.
+  executor->limits()->set_rlimit_nofile(RLIM64_INFINITY);
 
   // Get path to the binary.
   // app_path contains the path like it is also in /proc/pid/maps. It is
