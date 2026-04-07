@@ -818,12 +818,12 @@ class Generator(object):
   GUARD_END = '#endif  // {}'
   EMBED_INCLUDE = '#include "{}"'
   EMBED_CLASS = """
-class {0}Sandbox : public ::sapi::SandboxImpl<::sapi::Sandbox2Backend> {{
+class {0}Sandbox : public ::sapi::Sandbox<::sapi::Sandbox2Backend> {{
   public:
     {0}Sandbox()
       : {0}Sandbox(::sapi::SandboxConfig{{}}) {{}}
     {0}Sandbox(::sapi::SandboxConfig config)
-      : ::sapi::SandboxImpl<::sapi::Sandbox2Backend>(
+      : ::sapi::Sandbox<::sapi::Sandbox2Backend>(
           ConfigWithForkClientContext(std::move(config))) {{}}
   private:
     static ::sapi::SandboxConfig ConfigWithForkClientContext(
@@ -836,7 +836,7 @@ class {0}Sandbox : public ::sapi::SandboxImpl<::sapi::Sandbox2Backend> {{
   }}
 }};"""
   SANDBOX_CLASS_TYPEDEF = (
-      'using {0}Sandbox = ::sapi::SandboxImpl<::sapi::Sandbox2Backend>;'
+      'using {0}Sandbox = ::sapi::Sandbox<::sapi::Sandbox2Backend>;'
   )
 
   def __init__(self, translation_units):

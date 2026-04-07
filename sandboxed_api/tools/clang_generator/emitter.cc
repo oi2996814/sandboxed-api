@@ -75,12 +75,12 @@ constexpr absl::string_view kEmbedInclude = R"(#include "%1$s_embed.h"
 //   2. Embedded object identifier
 constexpr absl::string_view kEmbedClassTemplate = R"(
 // Sandbox with embedded sandboxee and default policy
-class %1$s : public ::sapi::SandboxImpl<::sapi::Sandbox2Backend> {
+class %1$s : public ::sapi::Sandbox<::sapi::Sandbox2Backend> {
  public:
   %1$s()
       : %1$s(::sapi::SandboxConfig{}) {}
   %1$s(::sapi::SandboxConfig config)
-      : ::sapi::SandboxImpl<::sapi::Sandbox2Backend>(
+      : ::sapi::Sandbox<::sapi::Sandbox2Backend>(
           ConfigWithForkClientContext(std::move(config))) {}
 
  private:
@@ -109,7 +109,7 @@ class %1$s : public ::sapi::SandboxImpl<::sapi::Sandbox2Backend> {
 // Text template arguments:
 //   1. Class name
 constexpr absl::string_view kSandboxTypedefTemplate = R"(
-using %1$s = ::sapi::SandboxImpl<::sapi::Sandbox2Backend>;
+using %1$s = ::sapi::Sandbox<::sapi::Sandbox2Backend>;
 )";
 
 // Sandboxed API class template.
