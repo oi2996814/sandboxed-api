@@ -105,14 +105,6 @@ absl::NoDestructor<llvm::cl::opt<std::string>> g_sapi_sandboxee_src_out(
                    "If empty, no file is generated."),
     llvm::cl::cat(*g_tool_category));
 
-absl::NoDestructor<llvm::cl::opt<SandboxMode>> g_sapi_sandbox_mode(
-    "sapi_sandbox_mode", llvm::cl::desc("Sandbox mode to use:"),
-    llvm::cl::values(clEnumValN(SandboxMode::kSandbox2, "sandbox2",
-                                "Use Sandbox2 backend"),
-                     clEnumValN(SandboxMode::kPassthrough, "passthrough",
-                                "Use Passthrough backend")),
-    llvm::cl::init(SandboxMode::kSandbox2), llvm::cl::cat(*g_tool_category));
-
 absl::NoDestructor<llvm::cl::opt<bool>> g_symbol_list_gen(
     "symbol_list_gen",
     llvm::cl::desc("Whether to generate a list of symbols exported from the "
@@ -179,7 +171,6 @@ GeneratorOptions GeneratorOptionsFromFlags(
   }
   options.embed_dir = *g_sapi_embed_dir;
   options.embed_name = *g_sapi_embed_name;
-  options.sandbox_mode = *g_sapi_sandbox_mode;
   options.symbol_list_gen = *g_symbol_list_gen;
   options.sandboxed_library_gen = *g_sandboxed_library_gen;
   return options;

@@ -412,28 +412,3 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
 )
-
-cc_library(
-    name = "passthrough_backend",
-    srcs = [
-        "passthrough_rpcchannel.cc",
-        "passthrough_rpcchannel.h",
-    ],
-    hdrs = [
-        "passthrough_backend.h",
-    ],
-    deps = [
-        ":call",
-        ":rpcchannel",
-        ":sandbox_config",
-        ":var_type",
-        "@abseil-cpp//absl/base:core_headers",
-        "@abseil-cpp//absl/container:flat_hash_set",
-        "@abseil-cpp//absl/functional:any_invocable",
-        "@abseil-cpp//absl/status",
-        "@abseil-cpp//absl/status:statusor",
-        "@abseil-cpp//absl/synchronization",
-        "@abseil-cpp//absl/time",
-        "@abseil-cpp//absl/types:span",
-    ],
-)

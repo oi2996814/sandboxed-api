@@ -38,11 +38,6 @@
 
 namespace sapi {
 
-enum class SandboxMode {
-  kSandbox2,
-  kPassthrough,
-};
-
 struct GeneratorOptions {
   template <typename ContainerT>
   GeneratorOptions& set_function_names(const ContainerT& value) {
@@ -82,7 +77,6 @@ struct GeneratorOptions {
   bool sandboxed_library_gen = false;
 
   // Output options
-  SandboxMode sandbox_mode = SandboxMode::kSandbox2;
   std::string work_dir;
   std::string name;            // Name of the Sandboxed API
   std::string namespace_name;  // Namespace to wrap the SAPI in
