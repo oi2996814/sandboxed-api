@@ -202,8 +202,8 @@ void UnotifyMonitor::HandleUnotify() {
       VLOG(1) << "Unotify recv failed with ENOENT";
     } else {
       SetExitStatusCode(Result::INTERNAL_ERROR, Result::FAILED_NOTIFY);
-      return;
     }
+    return;
   }
   Syscall syscall(req_data->pid, req_data->data);
   if (wait_for_execveat() && syscall.nr() == __NR_execveat &&
