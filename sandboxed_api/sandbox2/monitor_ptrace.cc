@@ -315,8 +315,18 @@ void PtraceMonitor::Run() {
     getrusage(RUSAGE_THREAD, result_.GetRUsageMonitor());
     OnDone();
   };
-
   absl::Cleanup setup_notify = [this] { setup_notification_.Notify(); };
+  absl::Cleanup process_cleanup = [this] {
+    if (process_.init_pid > 0) {
+      kill(process_.init_pid, SIGKILL);
+    } else if (process_.main_pid > 0) {
+      kill(process_.main_pid, SIGKILL);
+    }
+  };
+  if (!InitApplyLimits()) {
+    SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_LIMITS);
+    return;
+  }
   // It'd be costly to initialize the sigset_t for each sigtimedwait()
   // invocation, so do it once per Monitor.
   if (!use_deadline_manager_ && !InitSetupSignals()) {
@@ -334,6 +344,7 @@ void PtraceMonitor::Run() {
   // Tell the parent thread (Sandbox2 object) that we're done with the initial
   // set-up process of the sandboxee.
   std::move(setup_notify).Invoke();
+  std::move(process_cleanup).Cancel();
 
   bool sandboxee_exited = false;
   pid_waiter_.SetPriorityPid(process_.main_pid);

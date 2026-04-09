@@ -236,10 +236,6 @@ void MonitorBase::Launch() {
     SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_WAIT);
     return;
   }
-  if (!InitApplyLimits()) {
-    SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_LIMITS);
-    return;
-  }
   std::move(process_cleanup).Cancel();
 
   RunInternal();

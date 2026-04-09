@@ -94,6 +94,16 @@ void InitSeccompUnotify(sock_fprog prog, Comms* comms,
       error.store(true, std::memory_order_seq_cst);
       SAPI_RAW_LOG(FATAL, "closing unotify fd");
     }
+    // Wait for the monitor to apply limits.
+    uint32_t msg;
+    if (!comms->RecvUint32(&msg)) {
+      error.store(true, std::memory_order_seq_cst);
+      SAPI_RAW_LOG(FATAL, "receiving limits applied message");
+    }
+    if (msg != Client::kSandbox2UnotifyLimitsApplied) {
+      error.store(true, std::memory_order_seq_cst);
+      SAPI_RAW_LOG(FATAL, "invalid limits applied message");
+    }
     sock_filter filter = ALLOW;
     struct sock_fprog allow_prog = {
         .len = 1,

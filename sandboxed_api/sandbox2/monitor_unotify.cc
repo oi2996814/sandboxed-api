@@ -1,5 +1,6 @@
 #include "sandboxed_api/sandbox2/monitor_unotify.h"
 
+#include <fcntl.h>
 #include <linux/seccomp.h>
 #include <poll.h>
 #include <sys/eventfd.h>
@@ -259,9 +260,17 @@ void UnotifyMonitor::Run() {
     getrusage(RUSAGE_THREAD, result_.GetRUsageMonitor());
     OnDone();
   };
-
   absl::Cleanup setup_notify = [this] { setup_notification_.Notify(); };
+  absl::Cleanup process_cleanup = [this] { KillInit(); };
   if (!InitSetupUnotify()) {
+    SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_NOTIFY);
+    return;
+  }
+  if (!InitApplyLimits()) {
+    SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_LIMITS);
+    return;
+  }
+  if (!comms_->SendUint32(Client::kSandbox2UnotifyLimitsApplied)) {
     SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_NOTIFY);
     return;
   }
@@ -340,7 +349,6 @@ void UnotifyMonitor::Run() {
       HandleUnotify();
     }
   }
-  KillInit();
 }
 
 void UnotifyMonitor::SetExitStatusFromStatusPipe() {

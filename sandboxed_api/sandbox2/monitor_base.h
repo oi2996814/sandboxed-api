@@ -81,6 +81,9 @@ class MonitorBase {
   virtual void SetWallTimeLimit(absl::Duration limit) = 0;
 
  protected:
+  // Applies limits on the sandboxee.
+  bool InitApplyLimits();
+
   // Sends the policy to the client.
   // Can be overridden by subclasses to save/modify policy before sending.
   // Returns success/failure status.
@@ -152,9 +155,6 @@ class MonitorBase {
 
   // Sends information about the current working directory.
   bool InitSendCwd();
-
-  // Applies limits on the sandboxee.
-  bool InitApplyLimits();
 
   // Applies individual limit on the sandboxee.
   bool InitApplyLimit(pid_t pid, int resource, const rlimit64& rlim) const;

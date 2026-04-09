@@ -45,6 +45,10 @@ class Client {
   // UnotifyMonitor.
   static constexpr uint32_t kSandbox2ClientUnotify = 0x0A0B0C03;
 
+  // Sandboxee can proceed after seccomp_unotify setup as limits have been
+  // applied by the monitor.
+  static constexpr uint32_t kSandbox2UnotifyLimitsApplied = 0x0A0B0C04;
+
   // Allow speculation in the seccomp policy.
   static constexpr uint32_t kAllowSpeculationBit = 0x10000000;
 
