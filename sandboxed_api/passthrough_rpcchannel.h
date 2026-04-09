@@ -38,8 +38,13 @@ class PassthroughRPCChannel : public RPCChannel {
  public:
   using CallFunctionT =
       absl::AnyInvocable<void(const FuncCall& call, FuncRet* ret) const>;
-  explicit PassthroughRPCChannel(CallFunctionT call_function)
-      : call_function_(std::move(call_function)) {}
+  using SymbolFunctionT =
+      absl::AnyInvocable<void(const char* symname, FuncRet* ret) const>;
+
+  explicit PassthroughRPCChannel(CallFunctionT call_function,
+                                 SymbolFunctionT symbol_function)
+      : call_function_(std::move(call_function)),
+        symbol_function_(std::move(symbol_function)) {}
 
   absl::Status Allocate(size_t size, void** addr,
                         bool disable_shared_memory) override;
@@ -78,6 +83,7 @@ class PassthroughRPCChannel : public RPCChannel {
 
  private:
   CallFunctionT call_function_;
+  SymbolFunctionT symbol_function_;
 };
 
 }  // namespace sapi

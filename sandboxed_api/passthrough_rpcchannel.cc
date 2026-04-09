@@ -25,6 +25,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
+#include "sandboxed_api/call.h"
 
 namespace sapi {
 
@@ -67,11 +68,13 @@ absl::StatusOr<size_t> PassthroughRPCChannel::CopyToSandbox(
 }
 
 absl::Status PassthroughRPCChannel::Symbol(const char* symname, void** addr) {
-  *addr = dlsym(RTLD_DEFAULT, symname);
-  if (!*addr) {
-    return absl::ErrnoToStatus(errno,
-                               "PassthroughRPCChannel::Symbol: dlsym failed");
+  FuncRet ret{};
+  symbol_function_(symname, &ret);
+  if (!ret.success) {
+    return absl::InternalError(
+        "PassthroughRPCChannel::Symbol: symbol not found");
   }
+  *addr = reinterpret_cast<void*>(ret.int_val);
   return absl::OkStatus();
 }
 

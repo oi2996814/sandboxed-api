@@ -31,10 +31,12 @@ class SandboxBase;
 class PassthroughBackend {
  public:
   using CallFunctionT = PassthroughRPCChannel::CallFunctionT;
-  PassthroughBackend(SandboxConfig config, CallFunctionT call_function)
-      : rpc_channel_(
-            std::make_unique<PassthroughRPCChannel>(std::move(call_function))) {
-  }
+  using SymbolFunctionT = PassthroughRPCChannel::SymbolFunctionT;
+
+  PassthroughBackend(SandboxConfig config, CallFunctionT call_function,
+                     SymbolFunctionT symbol_function)
+      : rpc_channel_(std::make_unique<PassthroughRPCChannel>(
+            std::move(call_function), std::move(symbol_function))) {}
 
   // Initializes a new sandboxing session.
   absl::Status Init() { return absl::OkStatus(); }

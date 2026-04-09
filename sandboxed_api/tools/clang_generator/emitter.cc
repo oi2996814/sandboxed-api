@@ -142,7 +142,7 @@ class %1$s : public ::sapi::Sandbox<::sapi::PassthroughBackend> {
   %1$s()
       : %1$s(::sapi::SandboxConfig{}) {}
   %1$s(::sapi::SandboxConfig config)
-      : %1$s(::sapi::PassthroughBackend(std::move(config), %2$s)) {}
+      : %1$s(::sapi::PassthroughBackend(std::move(config), %2$s, %3$s)) {}
   %1$s(::sapi::PassthroughBackend backend)
       : ::sapi::Sandbox<::sapi::PassthroughBackend>(std::move(backend)) {}
 };
@@ -617,7 +617,9 @@ absl::StatusOr<std::string> Emitter::DoEmitHeader() {
     case SandboxMode::kPassthrough: {
       absl::StrAppendFormat(
           &out, kPassthroughClassTemplate, sandbox_class_name,
-          absl::StrCat("::sapi::client::", handle_msg_prefix, "HandleCallMsg"));
+          absl::StrCat("::sapi::client::", handle_msg_prefix, "HandleCallMsg"),
+          absl::StrCat("::sapi::client::", handle_msg_prefix,
+                       "HandleSymbolMsg"));
       break;
     }
   }
