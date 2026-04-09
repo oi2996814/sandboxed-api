@@ -330,7 +330,7 @@ cc_library(
     hdrs = ["function_call_helper.h"],
     copts = sapi_platform_copts(),
     # Note that this is not a public API. It is used by the generated code and by the
-    # `call_message_handler` below, but should not be used directly by API users.
+    # `client_message_handler` below, but should not be used directly by API users.
     visibility = ["//visibility:public"],
     deps = [
         ":call",
@@ -368,8 +368,8 @@ cc_library(
 )
 
 cc_library(
-    name = "call_message_handler",
-    srcs = ["call_message_handler.cc"],
+    name = "client_message_handler",
+    srcs = ["client_message_handler.cc"],
     copts = sapi_platform_copts(),
     visibility = ["//visibility:public"],
     deps = [

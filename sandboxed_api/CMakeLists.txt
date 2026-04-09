@@ -298,12 +298,12 @@ target_link_libraries(sapi_function_call_helper
           sapi::var_type
 )
 
-# sapi::call_message_handler
-add_library(sapi_call_message_handler ${SAPI_LIB_TYPE}
-  call_message_handler.cc
+# sapi::client_message_handler
+add_library(sapi_client_message_handler ${SAPI_LIB_TYPE}
+  client_message_handler.cc
 )
-add_library(sapi::call_message_handler ALIAS sapi_call_message_handler)
-target_link_libraries(sapi_call_message_handler PRIVATE
+add_library(sapi::client_message_handler ALIAS sapi_client_message_handler)
+target_link_libraries(sapi_client_message_handler PRIVATE
   absl::check
   absl::core_headers
   absl::log

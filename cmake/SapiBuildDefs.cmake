@@ -143,7 +143,7 @@ function(add_sapi_library)
     )
     set(_sapi_sandboxee_client_lib "${_sapi_sandboxee_client_target}")
   else()
-    set (_sapi_sandboxee_client_lib "sapi::call_message_handler")
+    set (_sapi_sandboxee_client_lib "sapi::client_message_handler")
   endif()
 
   # The sandboxed binary

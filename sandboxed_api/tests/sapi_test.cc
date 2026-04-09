@@ -58,6 +58,7 @@ namespace sapi {
 namespace {
 
 using ::absl_testing::IsOk;
+using ::absl_testing::IsOkAndHolds;
 using ::absl_testing::StatusIs;
 using ::testing::ContainerEq;
 using ::testing::Eq;
@@ -494,6 +495,18 @@ TEST_P(SandboxTest, MapFd) {
     SAPI_ASSERT_OK_AND_ASSIGN(result, api.sum(1, 2));
     EXPECT_THAT(result, Eq(3));
   }
+}
+
+TEST_P(SandboxTest, CompareSelfSymbol) {
+  SandboxConfig config = GetDefaultConfig();
+  SapiTestSandbox sandbox(std::move(config));
+  ASSERT_THAT(sandbox.Init(), IsOk());
+  SapiTestApi api(&sandbox);
+  void* symbol = nullptr;
+  SAPI_ASSERT_OK(sandbox.Symbol("compare_self_symbol", &symbol));
+  EXPECT_THAT(symbol, NotNull());
+  sapi::v::RemotePtr remote_symbol(symbol);
+  EXPECT_THAT(api.compare_self_symbol(&remote_symbol), IsOkAndHolds(true));
 }
 
 INSTANTIATE_TEST_SUITE_P(SAPI, SandboxTest, ::testing::Values(false, true),

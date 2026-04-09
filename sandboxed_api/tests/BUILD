@@ -66,6 +66,7 @@ sapi_library(
     name = "sapi_test-sapi",
     functions = [
         "accumulate",
+        "compare_self_symbol",
     ],
     input_files = [
         "sapi_test_lib_cpp.cc",

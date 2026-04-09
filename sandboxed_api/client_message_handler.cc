@@ -137,5 +137,20 @@ void HandleCallMsg(const FuncCall& call, FuncRet* ret) {
   ret->success = true;
 }
 
+// Handles requests to find a symbol value.
+void HandleSymbolMsg(const char* symname, FuncRet* ret) {
+  ret->ret_type = v::Type::kPointer;
+
+  void* handle = dlopen(nullptr, RTLD_NOW);
+  if (handle == nullptr) {
+    ret->success = false;
+    ret->int_val = static_cast<uintptr_t>(Error::kDlOpen);
+    return;
+  }
+
+  ret->int_val = reinterpret_cast<uintptr_t>(dlsym(handle, symname));
+  ret->success = true;
+}
+
 }  // namespace client
 }  // namespace sapi

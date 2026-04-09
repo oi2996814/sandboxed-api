@@ -27,6 +27,7 @@ if(BUILD_TESTING AND SAPI_BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
   # sandboxed_api/examples/sum/lib:sum-sapi
   add_sapi_library(sapi_test-sapi
     FUNCTIONS accumulate
+              compare_self_symbol
     INPUTS sapi_test_lib_cpp.cc
     LIBRARY sapi_test_lib
     LIBRARY_NAME SapiTest

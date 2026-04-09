@@ -54,14 +54,14 @@ absl::StatusOr<FuncRet> Sandbox2RPCChannel::Return(v::Type exp_type) {
                << " != " << sizeof(FuncRet) << ")";
     return absl::UnavailableError("Received TLV has incorrect length");
   }
+  if (!ret.success) {
+    LOG(ERROR) << "FuncRet->success == false";
+    return absl::UnavailableError("Function call failed");
+  }
   if (ret.ret_type != exp_type) {
     LOG(ERROR) << "FuncRet->type != exp_type (" << ret.ret_type
                << " != " << exp_type << ")";
     return absl::UnavailableError("Received TLV has incorrect return type");
-  }
-  if (!ret.success) {
-    LOG(ERROR) << "FuncRet->success == false";
-    return absl::UnavailableError("Function call failed");
   }
   return ret;
 }

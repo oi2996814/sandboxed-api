@@ -14,6 +14,7 @@
 
 #include "sandboxed_api/tools/clang_generator/emitter.h"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -124,9 +125,10 @@ using %1$s = ::sapi::Sandbox<::sapi::Sandbox2Backend>;
 
 // Text template arguments:
 //   1. Function name prefix
-constexpr absl::string_view kHandleCallMsgDeclarationTemplate = R"(
+constexpr absl::string_view kHandleMsgDeclarationTemplate = R"(
 namespace sapi::client {
 void %1$sHandleCallMsg(const ::sapi::FuncCall& call, ::sapi::FuncRet* ret);
+void %1$sHandleSymbolMsg(const char* symname, ::sapi::FuncRet* ret);
 }  // namespace sapi::client
 )";
 
@@ -211,12 +213,27 @@ void %3$sHandleCallMsg(const ::sapi::FuncCall& call, ::sapi::FuncRet* ret) {
   if (ABSL_PREDICT_FALSE(it == kSandboxeeFunctions->end())) {
     LOG(ERROR) << "Function not found: '" << call.func << "'";
     *ret = ToFuncError(Error::kInvalidFunctionName);
-    ret->ret_type = call.ret_type;
     return;
   }
 
   ::sapi::FunctionCallPreparer preparer(call);
   *ret = it->second(preparer);
+}
+
+void %3$sHandleSymbolMsg(const char* symname, ::sapi::FuncRet* ret) {
+  static const absl::NoDestructor<absl::flat_hash_map<std::string, void*>>
+    kSandboxeeSymbols({
+  %5$s
+  });
+  auto it = kSandboxeeSymbols->find(symname);
+  if (ABSL_PREDICT_FALSE(it == kSandboxeeSymbols->end())) {
+    LOG(ERROR) << "Symbol not found: '" << symname << "'";
+    *ret = ToFuncError(Error::kInvalidFunctionName);
+    return;
+  }
+  ret->int_val = reinterpret_cast<uintptr_t>(it->second);
+  ret->success = true;
+  ret->ret_type = ::sapi::v::Type::kPointer;
 }
 
 }  // namespace sapi::client
@@ -468,19 +485,33 @@ absl::StatusOr<std::string> Emitter::DoEmitSandboxeeSrc() {
   absl::StrAppend(&out, kSandboxeeCommonIncludes);
   std::string call_msg_prefix =
       options_.sandbox_mode == SandboxMode::kPassthrough ? options_.name : "";
+  std::vector<std::string> rendered_functions_unqualified_ordered(
+      rendered_functions_unqualified_.begin(),
+      rendered_functions_unqualified_.end());
+  std::sort(rendered_functions_unqualified_ordered.begin(),
+            rendered_functions_unqualified_ordered.end());
+
   absl::StrAppend(
       &out, absl::StrFormat(
                 kSandboxeeSrcTemplate,
                 absl::StrJoin(rendered_sandboxee_prototypes_ordered_, "\n"),
                 absl::StrJoin(rendered_sandboxee_handler_ordered_, "\n"),
                 call_msg_prefix,
-                absl::StrJoin(rendered_functions_unqualified_, ",\n",
+                absl::StrJoin(rendered_functions_unqualified_ordered, ",\n",
                               [](std::string* out, std::string_view func) {
                                 absl::StrAppend(
                                     out,
                                     absl::StrFormat(
                                         "{\"%1$s\", FuncHandler%1$s}", func));
-                              })));
+                              }),
+                absl::StrJoin(
+                    rendered_functions_unqualified_ordered, ",\n",
+                    [](std::string* out, std::string_view func) {
+                      absl::StrAppend(
+                          out, absl::StrFormat(
+                                   "{\"%1$s\", reinterpret_cast<void*>(&%1$s)}",
+                                   func));
+                    })));
   return out;
 }
 
@@ -525,11 +556,11 @@ absl::StatusOr<std::string> Emitter::DoEmitHeader() {
     absl::StrAppendFormat(&out, kEmbedInclude, include_file);
   }
 
-  std::string handle_call_msg_prefix =
+  std::string handle_msg_prefix =
       options_.has_sandboxee_src_out() ? options_.name : "";
   if (options_.sandbox_mode == SandboxMode::kPassthrough) {
-    absl::StrAppendFormat(&out, kHandleCallMsgDeclarationTemplate,
-                          handle_call_msg_prefix);
+    absl::StrAppendFormat(&out, kHandleMsgDeclarationTemplate,
+                          handle_msg_prefix);
   }
 
   // If specified, wrap the generated API in a namespace
@@ -586,8 +617,7 @@ absl::StatusOr<std::string> Emitter::DoEmitHeader() {
     case SandboxMode::kPassthrough: {
       absl::StrAppendFormat(
           &out, kPassthroughClassTemplate, sandbox_class_name,
-          absl::StrCat("::sapi::client::", handle_call_msg_prefix,
-                       "HandleCallMsg"));
+          absl::StrCat("::sapi::client::", handle_msg_prefix, "HandleCallMsg"));
       break;
     }
   }

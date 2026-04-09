@@ -43,6 +43,7 @@ namespace sapi {
 namespace client {
 
 void HandleCallMsg(const FuncCall& call, FuncRet* ret);
+void HandleSymbolMsg(const char* symname, FuncRet* ret);
 
 // Handles requests to allocate memory inside the sandboxee.
 void HandleAllocMsg(const size_t size, FuncRet* ret) {
@@ -84,21 +85,6 @@ void HandleFreeMsg(uintptr_t ptr, FuncRet* ret) {
   ret->ret_type = v::Type::kVoid;
   ret->success = true;
   ret->int_val = 0ULL;
-}
-
-// Handles requests to find a symbol value.
-void HandleSymbolMsg(const char* symname, FuncRet* ret) {
-  ret->ret_type = v::Type::kPointer;
-
-  void* handle = dlopen(nullptr, RTLD_NOW);
-  if (handle == nullptr) {
-    ret->success = false;
-    ret->int_val = static_cast<uintptr_t>(Error::kDlOpen);
-    return;
-  }
-
-  ret->int_val = reinterpret_cast<uintptr_t>(dlsym(handle, symname));
-  ret->success = true;
 }
 
 // Handles requests to receive a file descriptor from sandboxer.

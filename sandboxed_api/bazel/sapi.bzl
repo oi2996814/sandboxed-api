@@ -437,7 +437,7 @@ def sapi_library(
         )
         client_message_handler = ":" + name + ".sandboxee"
     else:
-        client_message_handler = "//sandboxed_api:call_message_handler"
+        client_message_handler = "//sandboxed_api:client_message_handler"
 
     # Library that contains generated interface and sandboxed binary as a data
     # dependency. Add this as a dependency instead of original library.
