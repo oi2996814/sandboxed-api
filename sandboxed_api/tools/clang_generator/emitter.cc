@@ -58,9 +58,13 @@ constexpr absl::string_view kHeaderIncludes =
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "sandboxed_api/sandbox.h"
-#include "sandboxed_api/sandbox2_backend.h"
 #include "sandboxed_api/util/status_macros.h"
 #include "sandboxed_api/vars.h"
+
+)";
+
+constexpr absl::string_view kSandboxBackendInclude =
+    R"(#include "sandboxed_api/%1$s_backend.h"
 
 )";
 
@@ -118,6 +122,30 @@ constexpr absl::string_view kSandboxTypedefTemplate = R"(
 using %1$s = ::sapi::Sandbox<::sapi::Sandbox2Backend>;
 )";
 
+// Text template arguments:
+//   1. Function name prefix
+constexpr absl::string_view kHandleCallMsgDeclarationTemplate = R"(
+namespace sapi::client {
+void %1$sHandleCallMsg(const ::sapi::FuncCall& call, ::sapi::FuncRet* ret);
+}  // namespace sapi::client
+)";
+
+// Text template arguments:
+//   1. Class name
+//   2. HandleCallMsg function name
+constexpr std::string_view kPassthroughClassTemplate = R"(
+// Sandbox class for the Passthrough backend with default policy.
+class %1$s : public ::sapi::Sandbox<::sapi::PassthroughBackend> {
+ public:
+  %1$s()
+      : %1$s(::sapi::SandboxConfig{}) {}
+  %1$s(::sapi::SandboxConfig config)
+      : %1$s(::sapi::PassthroughBackend(std::move(config), %2$s)) {}
+  %1$s(::sapi::PassthroughBackend backend)
+      : ::sapi::Sandbox<::sapi::PassthroughBackend>(std::move(backend)) {}
+};
+)";
+
 // Sandboxed API class template.
 // Text template arguments:
 //   1. Class name
@@ -150,6 +178,11 @@ inline constexpr std::string_view kSandboxeeCommonIncludes = R"(
 #include "sandboxed_api/function_call_helper.h"
 )";
 
+// Text template arguments:
+//   1. Sandboxee prototypes
+//   2. Sandboxee handler functions
+//   3. HandleCallMsg name prefix
+//   4. Sandboxee function names
 inline constexpr std::string_view kSandboxeeSrcTemplate = R"(
 extern "C" {
   %1$s
@@ -164,14 +197,14 @@ namespace {
   %2$s
 }
 
-void HandleCallMsg(const ::sapi::FuncCall& call, ::sapi::FuncRet* ret) {
+void %3$sHandleCallMsg(const ::sapi::FuncCall& call, ::sapi::FuncRet* ret) {
   VLOG(1) << "HandleMsgCall, func: '" << call.func
   << "', # of args: " << call.argc;
 
   static const absl::NoDestructor<absl::flat_hash_map<std::string,
     FuncRet (*)(const ::sapi::FunctionCallPreparer& call)>>
     kSandboxeeFunctions({
-  %3$s
+  %4$s
   });
 
   auto it = kSandboxeeFunctions->find(call.func);
@@ -433,11 +466,14 @@ absl::StatusOr<std::string> Emitter::DoEmitFunction(
 absl::StatusOr<std::string> Emitter::DoEmitSandboxeeSrc() {
   std::string out;
   absl::StrAppend(&out, kSandboxeeCommonIncludes);
+  std::string call_msg_prefix =
+      options_.sandbox_mode == SandboxMode::kPassthrough ? options_.name : "";
   absl::StrAppend(
       &out, absl::StrFormat(
                 kSandboxeeSrcTemplate,
                 absl::StrJoin(rendered_sandboxee_prototypes_ordered_, "\n"),
                 absl::StrJoin(rendered_sandboxee_handler_ordered_, "\n"),
+                call_msg_prefix,
                 absl::StrJoin(rendered_functions_unqualified_, ",\n",
                               [](std::string* out, std::string_view func) {
                                 absl::StrAppend(
@@ -471,6 +507,10 @@ absl::StatusOr<std::string> Emitter::DoEmitHeader() {
 
   // Emit the common includes.
   absl::StrAppend(&out, kHeaderIncludes);
+  absl::StrAppendFormat(&out, kSandboxBackendInclude,
+                        options_.sandbox_mode == SandboxMode::kSandbox2
+                            ? "sandbox2"
+                            : "passthrough");
 
   // When embedding the sandboxee, add embed header include
   if (!options_.embed_name.empty()) {
@@ -483,6 +523,13 @@ absl::StatusOr<std::string> Emitter::DoEmitHeader() {
     }
     absl::StrAppend(&include_file, options_.embed_name);
     absl::StrAppendFormat(&out, kEmbedInclude, include_file);
+  }
+
+  std::string handle_call_msg_prefix =
+      options_.has_sandboxee_src_out() ? options_.name : "";
+  if (options_.sandbox_mode == SandboxMode::kPassthrough) {
+    absl::StrAppendFormat(&out, kHandleCallMsgDeclarationTemplate,
+                          handle_call_msg_prefix);
   }
 
   // If specified, wrap the generated API in a namespace
@@ -523,13 +570,26 @@ absl::StatusOr<std::string> Emitter::DoEmitHeader() {
 
   // Optionally emit a default sandbox that instantiates an embedded sandboxee
   std::string sandbox_class_name = absl::StrCat(options_.name, "Sandbox");
-  if (!options_.embed_name.empty()) {
-    absl::StrAppendFormat(
-        &out, kEmbedClassTemplate, sandbox_class_name,
-        absl::StrReplaceAll(options_.embed_name, {{"-", "_"}}));
-  } else {
-    // Or a typedef for the sandbox class if no embedded sandboxee is used.
-    absl::StrAppendFormat(&out, kSandboxTypedefTemplate, sandbox_class_name);
+  switch (options_.sandbox_mode) {
+    case SandboxMode::kSandbox2: {
+      if (!options_.embed_name.empty()) {
+        absl::StrAppendFormat(
+            &out, kEmbedClassTemplate, sandbox_class_name,
+            absl::StrReplaceAll(options_.embed_name, {{"-", "_"}}));
+      } else {
+        // Or a typedef for the sandbox class if no embedded sandboxee is used.
+        absl::StrAppendFormat(&out, kSandboxTypedefTemplate,
+                              sandbox_class_name);
+      }
+      break;
+    }
+    case SandboxMode::kPassthrough: {
+      absl::StrAppendFormat(
+          &out, kPassthroughClassTemplate, sandbox_class_name,
+          absl::StrCat("::sapi::client::", handle_call_msg_prefix,
+                       "HandleCallMsg"));
+      break;
+    }
   }
 
   // Emit the actual Sandboxed API

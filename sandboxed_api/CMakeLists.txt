@@ -94,6 +94,30 @@ target_link_libraries(sapi_shared_memory_rpcchannel
           sapi::status
 )
 
+# sandboxed_api:passthrough_backend
+add_library(sapi_passthrough_backend ${SAPI_LIB_TYPE}
+  passthrough_backend.h
+  passthrough_rpcchannel.cc
+  passthrough_rpcchannel.h
+)
+add_library(sapi::passthrough_backend ALIAS sapi_passthrough_backend)
+target_link_libraries(sapi_passthrough_backend
+  PRIVATE absl::any_invocable
+          absl::flat_hash_set
+          absl::status
+          absl::statusor
+          absl::span
+          absl::synchronization
+          absl::time
+          sapi::base
+          sapi::call
+          sapi::rpcchannel
+          sapi::sandbox_config
+          sapi::var_type
+          ${CMAKE_DL_LIBS}
+  PUBLIC absl::check
+)
+
 # sandboxed_api:sandbox2_backend
 add_library(sapi_sandbox2_backend ${SAPI_LIB_TYPE}
   sandbox2_backend.cc
@@ -172,6 +196,7 @@ target_link_libraries(sapi_sapi
          sandbox2::sandbox2
          sapi::base
          sapi::sandbox_config
+         sapi::passthrough_backend
          sapi::sandbox2_backend
          sapi::status
 )

@@ -166,6 +166,9 @@ def _sapi_interface_impl(ctx):
     append_arg(args, "--sapi_functions", ",".join(ctx.attr.functions))
     append_arg(args, "--sapi_ns", ctx.attr.namespace)
 
+    if use_clang_generator:
+        append_arg(args, "--sapi_sandbox_mode", ctx.attr.sandbox_mode)
+
     if use_clang_generator and ctx.outputs.sandboxee_src_out:
         append_arg(args, "--sapi_sandboxee_src_out", ctx.outputs.sandboxee_src_out.path)
         outs.append(ctx.outputs.sandboxee_src_out)
@@ -261,6 +264,7 @@ sapi_interface = rule(
         "_generator_v1": make_exec_label(
             "//sandboxed_api/tools/python_generator:sapi_generator",
         ),
+        "sandbox_mode": attr.string(default = "sandbox2"),
         "symbol_list_gen": attr.bool(default = False),
         "_generator_v2": make_exec_label(
             # TODO(cblichmann): Add prebuilt version of Clang based generator
@@ -331,7 +335,8 @@ def sapi_library(
         visibility = None,
         compatible_with = None,
         default_copts = [],
-        exec_properties = {}):
+        exec_properties = {},
+        sandbox_mode = "sandbox2"):
     """Provides the implementation of a Sandboxed API library.
 
     Args:
@@ -371,6 +376,7 @@ def sapi_library(
       default_copts: List of package level default copts, an additional
         attribute since copts already has default value.
       exec_properties: Dict of executable properties to be passed to the generated binary targets.
+      sandbox_mode: Sandbox mode to use for the generated library. Either "sandbox2" (default) or "passthrough".
     """
 
     common = _common_kwargs(tags, visibility, compatible_with)
@@ -378,6 +384,9 @@ def sapi_library(
     generated_header = generated_file_prefix + ".h"
     generated_sandboxee_src = generated_file_prefix + ".sandboxee.cc"
     use_sandboxee_generation = generator_version == 3
+    if sandbox_mode == "passthrough":
+        embed = False
+    in_process = sandbox_mode == "passthrough"
 
     # Reference (pull into the archive) required functions only. If the functions'
     # array is empty, pull in the whole archive (may not compile with MSAN).
@@ -387,6 +396,11 @@ def sapi_library(
             "-Wl,--whole-archive",
             "-Wl,--allow-multiple-definition",
         ]
+    sandboxee_linkopts = [
+        "-ldl",  # For dlopen(), dlsym()
+        # The sandboxing client must have access to all
+        "-Wl,-E",  # symbols used in the sandboxed library, so these
+    ] + exported_funcs  # must be both referenced, and exported
 
     lib_hdrs = hdrs or []
 
@@ -394,40 +408,22 @@ def sapi_library(
 
     default_deps = ["//sandboxed_api/sandbox2"]
 
-    sapi_data_deps = [":" + name + ".bin"] if not embed else []
+    sapi_data_deps = [":" + name + ".bin"] if not embed and not in_process else []
 
-    backend_dep = ["//sandboxed_api:sandbox2_backend"]
-
-    # Library that contains generated interface and sandboxed binary as a data
-    # dependency. Add this as a dependency instead of original library.
-    cc_library(
-        name = name,
-        srcs = srcs,
-        data = sapi_data_deps + data,
-        hdrs = lib_hdrs,
-        copts = default_copts + copts,
-        defines = defines,
-        deps = sort_deps(
-            [
-                "@abseil-cpp//absl/base:core_headers",
-                "@abseil-cpp//absl/status",
-                "@abseil-cpp//absl/status:statusor",
-                "//sandboxed_api:sapi",
-                "//sandboxed_api/util:status",
-                "//sandboxed_api:vars",
-            ] + deps +
-            ([":" + name + "_embed"] if embed else []) +
-            (default_deps if add_default_deps else []) +
-            backend_dep,
-        ),
-        **common
-    )
+    backend_dep = []
+    if sandbox_mode == "sandbox2":
+        backend_dep = ["//sandboxed_api:sandbox2_backend"]
+    elif sandbox_mode == "passthrough":
+        backend_dep = ["//sandboxed_api:passthrough_backend", ":" + name + ".lib"]
+    else:
+        fail("Unsupported sandbox mode: " + sandbox_mode)
 
     if use_sandboxee_generation:
         cc_library(
             name = name + ".sandboxee",
             srcs = [generated_sandboxee_src],
             deps = [
+                ":" + name + ".lib",
                 "@abseil-cpp//absl/base:core_headers",
                 "@abseil-cpp//absl/base:no_destructor",
                 "@abseil-cpp//absl/container:flat_hash_map",
@@ -443,21 +439,45 @@ def sapi_library(
     else:
         client_message_handler = "//sandboxed_api:call_message_handler"
 
-    cc_binary(
-        name = name + ".bin",
-        linkopts = [
-            "-ldl",  # For dlopen(), dlsym()
-            # The sandboxing client must have access to all
-            "-Wl,-E",  # symbols used in the sandboxed library, so these
-        ] + exported_funcs,  # must be both referenced, and exported
-        malloc = malloc,
-        deps = [
-            ":" + name + ".lib",
-            "//sandboxed_api:client",
-        ] + [client_message_handler],
-        copts = default_copts,
+    # Library that contains generated interface and sandboxed binary as a data
+    # dependency. Add this as a dependency instead of original library.
+    cc_library(
+        name = name,
+        srcs = srcs,
+        data = sapi_data_deps + data,
+        hdrs = lib_hdrs,
+        copts = default_copts + copts,
+        defines = defines,
+        linkopts = sandboxee_linkopts if in_process else [],
+        deps = sort_deps(
+            [
+                "@abseil-cpp//absl/base:core_headers",
+                "@abseil-cpp//absl/status",
+                "@abseil-cpp//absl/status:statusor",
+                "//sandboxed_api:sapi",
+                "//sandboxed_api/util:status",
+                "//sandboxed_api:vars",
+            ] + deps +
+            ([":" + name + "_embed"] if embed else []) +
+            (default_deps if add_default_deps else []) +
+            ([client_message_handler] if in_process else []) +
+            backend_dep,
+        ),
         **common
     )
+
+    if not in_process:
+        cc_binary(
+            name = name + ".bin",
+            linkopts = sandboxee_linkopts,
+            malloc = malloc,
+            deps = [
+                ":" + name + ".lib",
+                "//sandboxed_api:client",
+            ] + [client_message_handler],
+            copts = default_copts,
+            **common
+        )
 
     cc_library(
         name = name + ".lib",
@@ -494,6 +514,7 @@ def sapi_library(
         api_version = api_version,
         generator_version = generator_version,
         limit_scan_depth = limit_scan_depth,
+        sandbox_mode = sandbox_mode,
         **common
     )
 
