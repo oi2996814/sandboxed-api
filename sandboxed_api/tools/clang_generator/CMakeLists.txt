@@ -150,6 +150,7 @@ if(BUILD_TESTING AND SAPI_BUILD_TESTING)
     frontend_action_test_util.cc
     frontend_action_test_util.h
     emitter_test.cc
+    sandboxed_library_emitter_test.cc
   )
   target_link_libraries(sapi_generator_test PRIVATE
     absl::check

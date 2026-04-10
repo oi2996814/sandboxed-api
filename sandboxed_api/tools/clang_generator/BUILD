@@ -83,6 +83,7 @@ cc_test(
         "emitter_test.cc",
         "frontend_action_test_util.cc",
         "frontend_action_test_util.h",
+        "sandboxed_library_emitter_test.cc",
     ],
     copts = sapi_platform_copts(),
     data = [

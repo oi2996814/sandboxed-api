@@ -468,6 +468,9 @@ absl::StatusOr<std::string> SandboxedLibraryEmitter::EmitSandboxeeHdr(
   EmitLibraryHeaders(options, out);
 
   for (const auto* func : SortedFuncs()) {
+    if (func->sandboxee_thunk) {
+      continue;
+    }
     EmitWrapperDecl(out, *func);
     out += ";\n\n";
   }
