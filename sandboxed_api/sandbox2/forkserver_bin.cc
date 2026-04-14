@@ -16,7 +16,6 @@
 
 #include <csignal>
 #include <cstdlib>
-#include <string>
 
 #include "absl/base/log_severity.h"
 #include "absl/log/globals.h"
@@ -28,17 +27,22 @@
 #include "sandboxed_api/sandbox2/unwind/unwind.h"
 #include "sandboxed_api/util/raw_logging.h"
 
-int main() {
+namespace sandbox2 {
+namespace {
+
+int ForkserverMain() {
   SAPI_RAW_PCHECK(setpgid(0, 0) == 0, "setpgid(0, 0) failed");
-  // Make sure the logs go stderr.
+
+  // Make sure the logs go stderr. We won't initialize the logging library.
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
   // Close all non-essential FDs to keep newly opened FD numbers consistent.
-  absl::Status status = sandbox2::sanitizer::CloseAllFDsExcept(
-      {0, 1, 2, sandbox2::Comms::kSandbox2ClientCommsFD});
-
-  if (!status.ok()) {
-    SAPI_RAW_LOG(WARNING, "Closing non-essential FDs failed");
+  if (absl::Status status = sanitizer::CloseAllFDsExcept(
+          {0, 1, 2, Comms::kSandbox2ClientCommsFD});
+      !status.ok()) {
+    SAPI_RAW_LOG(WARNING, "Closing non-essential FDs failed: %.*s",
+                 static_cast<int>(status.message().size()),
+                 status.message().data());
   }
 
   // Make the process' name easily recognizable with ps/pstree.
@@ -51,32 +55,43 @@ int main() {
   // the parent goes down (or if the GlobalForkServerComms is closed), which is
   // assured by prctl(PR_SET_PDEATHSIG, SIGKILL) being called in the
   // ForkServer::Initialize(). We don't want to change behavior of non-global
-  // ForkServers, hence it's called here and not in the
-  // ForkServer::Initialize().
-  struct sigaction sa;
-  sa.sa_handler = SIG_IGN;
-  sa.sa_flags = 0;
-  sigemptyset(&sa.sa_mask);
-  if (sigaction(SIGTERM, &sa, nullptr) == -1) {
-    SAPI_RAW_PLOG(WARNING, "sigaction(SIGTERM, sa_handler=SIG_IGN)");
-  }
-
-  sandbox2::Comms comms(sandbox2::Comms::kDefaultConnection);
-  sandbox2::ForkServer fork_server(&comms);
-  sandbox2::sanitizer::WaitForSanitizer();
-
-  while (!fork_server.IsTerminated()) {
-    pid_t child_pid = fork_server.ServeRequest();
-    if (child_pid == 0) {
-      sandbox2::Client client(&comms);
-      client.SandboxMeHere();
-      auto status = sandbox2::RunLibUnwindAndSymbolizer(&comms);
-      if (!status.ok()) {
-        SAPI_RAW_LOG(ERROR, "RunLibUnwindAndSymbolizer failed: %s",
-                     std::string(status.message()).c_str());
-      }
-      return status.ok() ? EXIT_SUCCESS : EXIT_FAILURE;
+  // ForkServers, hence it's called here and not in ForkServer::Initialize().
+  {
+    struct sigaction sa;
+    sa.sa_handler = SIG_IGN;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(SIGTERM, &sa, nullptr) == -1) {
+      SAPI_RAW_PLOG(WARNING, "sigaction(SIGTERM, sa_handler=SIG_IGN)");
     }
   }
+
+  Comms comms(Comms::kDefaultConnection);
+  ForkServer fork_server(&comms);
+  sanitizer::WaitForSanitizer();
+
+  while (!fork_server.IsTerminated()) {
+    if (fork_server.ServeRequest() != 0) {
+      // Non-child process or error. Errors are logged internally.
+      continue;
+    }
+
+    Client client(&comms);
+    client.SandboxMeHere();
+
+    if (absl::Status status = RunLibUnwindAndSymbolizer(&comms); !status.ok()) {
+      SAPI_RAW_LOG(ERROR, "RunLibUnwindAndSymbolizer failed: %.*s",
+                   static_cast<int>(status.message().size()),
+                   status.message().data());
+      return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
+  }
   SAPI_RAW_VLOG(1, "ForkServer Comms closed. Exiting");
+  return EXIT_SUCCESS;
 }
+
+}  // namespace
+}  // namespace sandbox2
+
+int main() { return sandbox2::ForkserverMain(); }
