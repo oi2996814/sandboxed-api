@@ -388,19 +388,22 @@ def sapi_library(
         embed = False
     in_process = sandbox_mode == "passthrough"
 
-    # Reference (pull into the archive) required functions only. If the functions'
-    # array is empty, pull in the whole archive (may not compile with MSAN).
-    exported_funcs = ["-Wl,-u," + s for s in functions]
-    if (not exported_funcs):
-        exported_funcs = [
-            "-Wl,--whole-archive",
-            "-Wl,--allow-multiple-definition",
-        ]
-    sandboxee_linkopts = [
-        "-ldl",  # For dlopen(), dlsym()
-        # The sandboxing client must have access to all
-        "-Wl,-E",  # symbols used in the sandboxed library, so these
-    ] + exported_funcs  # must be both referenced, and exported
+    if use_sandboxee_generation:
+        sandboxee_linkopts = []
+    else:
+        # Reference (pull into the archive) required functions only. If the functions'
+        # array is empty, pull in the whole archive (may not compile with MSAN).
+        exported_funcs = ["-Wl,-u," + s for s in functions]
+        if (not exported_funcs):
+            exported_funcs = [
+                "-Wl,--whole-archive",
+                "-Wl,--allow-multiple-definition",
+            ]
+        sandboxee_linkopts = [
+            "-ldl",  # For dlopen(), dlsym()
+            # The sandboxing client must have access to all
+            "-Wl,-E",  # symbols used in the sandboxed library, so these
+        ] + exported_funcs  # must be both referenced, and exported
 
     lib_hdrs = hdrs or []
 
