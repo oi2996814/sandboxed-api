@@ -149,6 +149,13 @@ def _clang_format_file(src, out, **kwargs):
     )
 
 def _sapi_interface_impl(ctx):
+    if ctx.attr.generator_version == 1 and ctx.label.package not in [
+        "sandboxed_api/tools/python_generator",
+        "sandboxed_api/examples/stringop",
+    ]:
+        # TODO(b/500992305): Remove this temporary check once the python code generator is completely deleted.
+        fail("generator_version=1 is deprecated and cannot be used outside of internal tests.")
+
     cpp_toolchain = find_cpp_toolchain(ctx)
     generator = select_generator(ctx)
     use_clang_generator = ctx.attr.generator_version >= 2
@@ -331,7 +338,7 @@ def sapi_library(
         input_files = [],
         deps = [],
         tags = [],
-        generator_version = 1,
+        generator_version = 2,
         visibility = None,
         compatible_with = None,
         default_copts = [],
@@ -366,8 +373,7 @@ def sapi_library(
       deps: Extra dependencies to add to the SAPI library
       tags: Extra tags to associate with the target
       generator_version: Which version the the interface generator to use
-        (experimental). Version 1 uses the Python/libclang based `python_generator`,
-        version 2 uses the newer C++ implementation that uses the full clang
+        (experimental). Version 2 uses the newer C++ implementation that uses the full clang
         compiler front-end for parsing. Version 3 is similar to version 2 but also emits code for
         the sandboxee binary. Both emit equivalent Sandboxed APIs.
       visibility: Target visibility
