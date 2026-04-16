@@ -51,6 +51,13 @@ absl::NoDestructor<llvm::cl::extrahelp> g_extra_help(
     "Report bugs to <https://github.com/google/sandboxed-api/issues>\n");
 
 // Command line options
+absl::NoDestructor<llvm::cl::opt<int>> g_sapi_api_version(
+    "sapi_api_version", llvm::cl::init(1),
+    llvm::cl::desc(
+        "The API version of the Sandboxed API library. Currently only "
+        "version 1 is supported."),
+    llvm::cl::cat(*g_tool_category));
+
 absl::NoDestructor<llvm::cl::opt<std::string>> g_sapi_embed_dir(
     "sapi_embed_dir", llvm::cl::desc("Directory with embedded includes"),
     llvm::cl::cat(*g_tool_category));
@@ -161,6 +168,7 @@ GeneratorOptions GeneratorOptionsFromFlags(
     const std::vector<std::string>& sources) {
   GeneratorOptions options;
   options.work_dir = file_util::fileops::GetCWD();
+  options.api_version = *g_sapi_api_version;
   options.set_function_names(*g_sapi_functions);
   options.set_library_headers(*g_library_headers);
   for (const auto& input : sources) {
@@ -204,6 +212,11 @@ absl::Status GeneratorMain(int argc, char* argv[]) {
   }
 
   auto options = GeneratorOptionsFromFlags(sources);
+
+  if (options.api_version != 1) {
+    return absl::InvalidArgumentError(
+        "Error: Only API version 1 is currently defined.");
+  }
 
   std::unique_ptr<clang::tooling::CompilationDatabase> db =
       FromCxxAjustedCompileCommands(

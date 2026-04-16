@@ -99,10 +99,6 @@ function(add_sapi_library)
                         "${_sapi_one_value}" "${_sapi_multi_value}")
   set(_sapi_NAME "${ARGV0}")
 
-  if(_sapi_API_VERSION AND NOT _sapi_API_VERSION VERSION_EQUAL "1")
-    message(FATAL_ERROR "API_VERSION \"1\" is the only one defined right now")
-  endif()
-
   if (_sapi_GENERATOR_VERSION AND (_sapi_GENERATOR_VERSION VERSION_LESS "1" OR _sapi_GENERATOR_VERSION VERSION_GREATER "3"))
     message(FATAL_ERROR "GENERATOR_VERSION must be \"1\", \"2\" or \"3\"")
   endif()
@@ -192,7 +188,8 @@ function(add_sapi_library)
     "--sapi_functions=${_sapi_funcs}"
     "--sapi_ns=${_sapi_NAMESPACE}"
   )
-  if(_sapi_use_generator_version VERSION_EQUAL "2" OR _sapi_use_generator_version VERSION_EQUAL "3")
+  if(_sapi_use_generator_version VERSION_GREATER_EQUAL "2")
+    list(APPEND _sapi_generator_args "--sapi_api_version=${_sapi_API_VERSION}")
     if (_sapi_use_generator_version VERSION_EQUAL "3")
       list(APPEND _sapi_generator_args
         "--sapi_sandboxee_src_out=${_sapi_gen_sandboxee_src}"

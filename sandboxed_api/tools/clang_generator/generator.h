@@ -74,6 +74,7 @@ struct GeneratorOptions {
 
   bool has_sandboxee_src_out() const { return !sandboxee_src_out.empty(); }
 
+  int api_version = 1;
   absl::flat_hash_set<std::string> function_names;
   absl::flat_hash_set<std::string> library_headers;
   absl::flat_hash_set<std::string> in_files;

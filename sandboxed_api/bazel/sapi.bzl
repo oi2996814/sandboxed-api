@@ -262,7 +262,6 @@ sapi_interface = rule(
         "limit_scan_depth": attr.bool(default = False),
         "api_version": attr.int(
             default = 1,
-            values = [1],  # Only a single version is defined right now
         ),
         "generator_version": attr.int(
             default = 2,  # Note: always set by sapi_library
