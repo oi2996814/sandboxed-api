@@ -408,6 +408,7 @@ struct PointerArg : SandboxedLibraryEmitter::Arg {
         // Don't do anything here, we just transparently pass this through
         return absl::Substitute("sapi_tmp_$0.PtrNone()", name_);
     }
+    LOG(FATAL) << "Unsupported pointer direction";
   }
 
   std::string EmitRetArgs() const override {
