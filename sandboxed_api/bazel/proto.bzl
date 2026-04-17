@@ -14,6 +14,7 @@
 
 """Generates proto targets in various languages."""
 
+load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
@@ -75,7 +76,7 @@ def sapi_proto_library(
         srcs = srcs,
         deps = deps,
     )
-    native.cc_proto_library(
+    cc_proto_library(
         name = name + "_sapi_cc_proto",
         deps = [name],
     )

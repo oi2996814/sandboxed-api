@@ -16,7 +16,9 @@
 
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
 
-_SYSTEM_LLVM_BAZEL_TEMPLATE = """package(default_visibility = ["//visibility:public"])
+_SYSTEM_LLVM_BAZEL_TEMPLATE = """load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
 # Create one hidden library with all LLVM headers that depends on all its
 # static library archives. This will be used to provide individual library
 # targets named the same as the upstream Bazel files.
@@ -48,7 +50,9 @@ cc_library(name = "Support", deps = ["@llvm-project//llvm:llvm"])
 cc_library(name = "config", deps = ["@llvm-project//llvm:llvm"])
 """
 
-_SYSTEM_CLANG_BAZEL = """package(default_visibility = ["//visibility:public"])
+_SYSTEM_CLANG_BAZEL = """load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
 # Fake libraries that just depend on a big library with all files.
 cc_library(name = "ast", deps = ["@llvm-project//llvm:llvm"])
 cc_library(name = "basic", deps = ["@llvm-project//llvm:llvm"])
