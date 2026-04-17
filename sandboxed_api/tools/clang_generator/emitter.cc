@@ -84,14 +84,14 @@ class %1$s : public ::sapi::Sandbox<::sapi::Sandbox2Backend> {
  public:
   %1$s()
       : %1$s(::sapi::SandboxConfig{}) {}
-  %1$s(::sapi::SandboxConfig config)
+  explicit %1$s(::sapi::SandboxConfig config)
       : %1$s(::sapi::Sandbox2Backend(
                 ConfigWithForkClientContext(std::move(config)),
                 [this] { return CreateNotifier(); })) {}
   // This constructor should only be used for special cases, e.g. when using the
   // CreateNotifier() method. Otherwise, prefer to use the SandboxConfig
   // constructor above.
-  %1$s(::sapi::Sandbox2Backend backend)
+  explicit %1$s(::sapi::Sandbox2Backend backend)
       : ::sapi::Sandbox<::sapi::Sandbox2Backend>(std::move(backend)) {}
 
  private:
@@ -141,9 +141,9 @@ class %1$s : public ::sapi::Sandbox<::sapi::PassthroughBackend> {
  public:
   %1$s()
       : %1$s(::sapi::SandboxConfig{}) {}
-  %1$s(::sapi::SandboxConfig config)
+  explicit %1$s(::sapi::SandboxConfig config)
       : %1$s(::sapi::PassthroughBackend(std::move(config), %2$s, %3$s)) {}
-  %1$s(::sapi::PassthroughBackend backend)
+  explicit %1$s(::sapi::PassthroughBackend backend)
       : ::sapi::Sandbox<::sapi::PassthroughBackend>(std::move(backend)) {}
 };
 )";
