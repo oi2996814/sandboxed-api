@@ -13,8 +13,8 @@
 # limitations under the License.
 
 FetchContent_Declare(libffi
-  URL      https://github.com/libffi/libffi/releases/download/v3.3-rc2/libffi-3.3-rc2.tar.gz
-  URL_HASH SHA256=653ffdfc67fbb865f39c7e5df2a071c0beb17206ebfb0a9ecb18a18f63f6b263
+  URL      https://github.com/libffi/libffi/releases/download/v3.4.7/libffi-3.4.7.tar.gz
+  URL_HASH SHA256=138607dee268bdecf374adf9144c00e839e38541f75f24a1fcf18b78fda48b2d
 )
 FetchContent_GetProperties(libffi)
 if(NOT libffi_POPULATED)
@@ -81,11 +81,13 @@ add_library(ffi STATIC
   ${libffi_SOURCE_DIR}/include/ffi_cfi.h
   ${libffi_SOURCE_DIR}/include/ffi_common.h
   ${libffi_SOURCE_DIR}/include/ffitarget.h
+  ${libffi_SOURCE_DIR}/include/tramp.h
   ${libffi_SOURCE_DIR}/src/closures.c
   ${libffi_SOURCE_DIR}/src/debug.c
   ${libffi_SOURCE_DIR}/src/java_raw_api.c
   ${libffi_SOURCE_DIR}/src/prep_cif.c
   ${libffi_SOURCE_DIR}/src/raw_api.c
+  ${libffi_SOURCE_DIR}/src/tramp.c
   ${libffi_SOURCE_DIR}/src/types.c
   ${_ffi_platform_srcs}
 )

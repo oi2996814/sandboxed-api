@@ -43,7 +43,7 @@ class PtrOrCallable {
  public:
   explicit PtrOrCallable(v::Callable* callable) : callable_(callable) {}
   explicit PtrOrCallable(v::Ptr* ptr) : ptr_(ptr) {}
-  explicit PtrOrCallable(nullptr_t) : ptr_(nullptr) {}
+  explicit PtrOrCallable(std::nullptr_t) : ptr_(nullptr) {}
 
   bool IsCallable() const { return callable_ != nullptr; }
   bool IsPtr() const { return !IsCallable(); }

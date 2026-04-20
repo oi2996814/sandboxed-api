@@ -13,8 +13,8 @@
 # limitations under the License.
 
 FetchContent_Declare(libunwind
-  URL https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz
-  URL_HASH SHA256=4a6aec666991fb45d0889c44aede8ad6eb108071c3554fcdff671f9c94794976
+  URL https://github.com/libunwind/libunwind/releases/download/v1.8.3/libunwind-1.8.3.tar.gz
+  URL_HASH SHA256=be30d910e67f58d82e753231f1357f326a1a088acf126b21ff77e60aab19b90b
 )
 FetchContent_GetProperties(libunwind)
 if(NOT libunwind_POPULATED)
@@ -136,7 +136,6 @@ add_library(unwind_ptrace STATIC
   ${libunwind_SOURCE_DIR}/src/elfxx.h
   ${libunwind_SOURCE_DIR}/src/os-linux.h
   ${libunwind_SOURCE_DIR}/src/x86_64/init.h
-  ${libunwind_SOURCE_DIR}/src/x86_64/offsets.h
   ${libunwind_SOURCE_DIR}/src/x86_64/ucontext_i.h
   ${libunwind_SOURCE_DIR}/src/x86_64/unwind_i.h
   # included_sources
@@ -151,6 +150,7 @@ add_library(unwind_ptrace STATIC
   ${libunwind_SOURCE_DIR}/src/dwarf/Gparser.c
   ${libunwind_SOURCE_DIR}/src/dwarf/Gpe.c
   ${libunwind_SOURCE_DIR}/src/dwarf/global.c
+  ${libunwind_SOURCE_DIR}/src/mi/Gaddress_validator.c
   ${libunwind_SOURCE_DIR}/src/mi/Gdestroy_addr_space.c
   ${libunwind_SOURCE_DIR}/src/mi/Gdyn-extract.c
   ${libunwind_SOURCE_DIR}/src/mi/Gfind_dynamic_proc_info.c
@@ -158,6 +158,7 @@ add_library(unwind_ptrace STATIC
   ${libunwind_SOURCE_DIR}/src/mi/Gget_proc_name.c
   ${libunwind_SOURCE_DIR}/src/mi/Gget_reg.c
   ${libunwind_SOURCE_DIR}/src/mi/Gput_dynamic_unwind_info.c
+  ${libunwind_SOURCE_DIR}/src/mi/Gset_reg.c
   ${libunwind_SOURCE_DIR}/src/mi/flush_cache.c
   ${libunwind_SOURCE_DIR}/src/mi/init.c
   ${libunwind_SOURCE_DIR}/src/mi/mempool.c
@@ -174,8 +175,10 @@ add_library(unwind_ptrace STATIC
   ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_elf.c
   ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_find_proc_info.c
   ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_get_dyn_info_list_addr.c
+  ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_get_elf_filename.c
   ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_get_proc_name.c
   ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_internal.h
+  ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_ptrauth_insn_mask.c
   ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_put_unwind_info.c
   ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_reg_offset.c
   ${libunwind_SOURCE_DIR}/src/ptrace/_UPT_resume.c
