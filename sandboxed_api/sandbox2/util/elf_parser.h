@@ -136,15 +136,15 @@ class ElfParser {
   ElfParser(const ElfParser&) = delete;
   ElfParser& operator=(const ElfParser&) = delete;
 
-  // Endianess support functions
+  // Endianness support functions
   uint16_t Load16(const void* absl_nonnull src);
   uint32_t Load32(const void* absl_nonnull src);
   uint64_t Load64(const void* absl_nonnull src);
   template <size_t N>
-  void Load(unsigned char (*dst)[N], const void* src);
+  void Load(unsigned char (*absl_nonnull dst)[N], const void* absl_nonnull src);
   template <typename IntT>
-  std::enable_if_t<std::is_integral_v<IntT>, void> Load(IntT* dst,
-                                                        const void* src);
+  std::enable_if_t<std::is_integral_v<IntT>, void> Load(
+      IntT* absl_nonnull dst, const void* absl_nonnull src);
   // Lazy constructor.
   absl::Status Init(std::string filename, sapi::file_util::fileops::FDCloser fd,
                     bool mmap_file);

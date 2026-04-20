@@ -147,7 +147,7 @@ class GeneratorAction : public clang::ASTFrontendAction {
                                                   emitter_, options_);
   }
 
-  bool BeginSourceFileAction(clang::CompilerInstance& ci);
+  bool BeginSourceFileAction(clang::CompilerInstance& ci) override;
 
   bool hasCodeCompletionSupport() const override { return false; }
 
