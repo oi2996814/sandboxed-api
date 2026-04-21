@@ -28,12 +28,13 @@ endif()
 # dependencies. This is useful for cases where embedding projects already
 # depend on some of these libraries (e.g. Abseil).
 option(SAPI_DOWNLOAD_ABSL "Download Abseil at config time" ON)
-option(SAPI_DOWNLOAD_GOOGLETEST "Download googletest at config time" ON)
 option(SAPI_DOWNLOAD_BENCHMARK "Download benchmark at config time" ON)
-option(SAPI_DOWNLOAD_PROTOBUF "Download protobuf at config time" ON)
-option(SAPI_DOWNLOAD_LIBUNWIND "Download libunwind at config time" ON)
+option(SAPI_DOWNLOAD_GOOGLETEST "Download googletest at config time" ON)
 option(SAPI_DOWNLOAD_LIBCAP "Download libcap at config time" ON)
 option(SAPI_DOWNLOAD_LIBFFI "Download libffi at config time" ON)
+option(SAPI_DOWNLOAD_LIBUNWIND "Download libunwind at config time" ON)
+option(SAPI_DOWNLOAD_PROTOBUF "Download protobuf at config time" ON)
+option(SAPI_DOWNLOAD_RE2 "Download re2 at config time" ON)
 
 # Options for building examples
 option(SAPI_BUILD_EXAMPLES
@@ -51,9 +52,7 @@ option(SAPI_BUILD_TESTING
 # Disabled by default, as this will download a lot of extra content.
 option(SAPI_CONTRIB_BUILD_TESTING "Build tests for sandboxes in 'contrib'" OFF)
 
-option(SAPI_ENABLE_CLANG_TOOL
-  "Use the new Clang tool based header generator" OFF
-)
+option(SAPI_ENABLE_CLANG_TOOL "Use the Clang tool header generator" ON)
 option(SAPI_ENABLE_CLANG_TOOL_STATIC
   "Link the Clang libraries statically into the tool" OFF
 )

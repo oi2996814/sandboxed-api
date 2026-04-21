@@ -60,6 +60,11 @@ if(SAPI_DOWNLOAD_ABSL)
 endif()
 sapi_check_target(absl::core_headers)
 
+if(SAPI_DOWNLOAD_LIBUNWIND)
+  include(cmake/libunwind.cmake)
+endif()
+sapi_check_target(unwind_ptrace)
+
 if(SAPI_DOWNLOAD_LIBCAP)
   include(cmake/libcap.cmake)
   sapi_check_target(libcap::libcap)
@@ -74,15 +79,15 @@ else()
   find_package(Libffi REQUIRED)
 endif()
 
-if(SAPI_DOWNLOAD_LIBUNWIND)
-  include(cmake/libunwind.cmake)
-endif()
-sapi_check_target(unwind_ptrace)
-
 if(SAPI_DOWNLOAD_PROTOBUF)
   include(cmake/protobuf.cmake)
 endif()
 find_package(Protobuf REQUIRED)
+
+if(SAPI_DOWNLOAD_RE2)
+  include(cmake/re2.cmake)
+endif()
+sapi_check_target(re2)
 
 if(SAPI_BUILD_EXAMPLES)
   if(SAPI_DOWNLOAD_ZLIB)

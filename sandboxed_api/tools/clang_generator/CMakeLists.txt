@@ -115,6 +115,7 @@ target_link_libraries(sapi_generator PUBLIC
   absl::status
   absl::statusor
   absl::strings
+  re2
   sapi::fileops
   sapi::status
   ${_sapi_generator_clang_libs}
@@ -163,6 +164,7 @@ if(BUILD_TESTING AND SAPI_BUILD_TESTING)
     sapi::file_helpers
     sapi::runfiles
     sapi::sapi
+    sapi::testing
     sapi::generator
     sapi::status
     sapi::test_main

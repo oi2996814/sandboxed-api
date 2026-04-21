@@ -89,8 +89,7 @@ endmacro()
 #   version "1" is defined.
 # GENERATOR_VERSION Which version of the SAPI generator to use. Currently, only
 #   version "1", "2", and "3" are defined. Note that if unset, this defaults to
-#   version "1" unless SAPI_ENABLE_CLANG_TOOL is set, in which case it defaults
-#   to version "2".
+#   version "2".
 function(add_sapi_library)
   set(_sapi_opts NOEMBED)
   set(_sapi_one_value LIBRARY LIBRARY_NAME NAMESPACE API_VERSION GENERATOR_VERSION)
@@ -99,14 +98,14 @@ function(add_sapi_library)
                         "${_sapi_one_value}" "${_sapi_multi_value}")
   set(_sapi_NAME "${ARGV0}")
 
-  if (_sapi_GENERATOR_VERSION AND (_sapi_GENERATOR_VERSION VERSION_LESS "1" OR _sapi_GENERATOR_VERSION VERSION_GREATER "3"))
+  if(_sapi_GENERATOR_VERSION AND (_sapi_GENERATOR_VERSION VERSION_LESS "1" OR _sapi_GENERATOR_VERSION VERSION_GREATER "3"))
     message(FATAL_ERROR "GENERATOR_VERSION must be \"1\", \"2\" or \"3\"")
   endif()
 
-  if (_sapi_GENERATOR_VERSION)
+  if(_sapi_GENERATOR_VERSION)
     set(_sapi_use_generator_version ${_sapi_GENERATOR_VERSION})
   else()
-    if (SAPI_ENABLE_CLANG_TOOL)
+    if(SAPI_ENABLE_CLANG_TOOL)
       set(_sapi_use_generator_version "2")
     else()
       set(_sapi_use_generator_version "1")
@@ -123,7 +122,7 @@ function(add_sapi_library)
   endif()
 
   # The sandboxee client library.
-  if (_sapi_use_generator_version VERSION_EQUAL "3")
+  if(_sapi_use_generator_version VERSION_EQUAL "3")
     set(_sapi_sandboxee_client_target "${_sapi_NAME}_sandboxee_gen")
     add_library("${_sapi_sandboxee_client_target}" STATIC
       "${_sapi_gen_sandboxee_src}"
@@ -139,7 +138,7 @@ function(add_sapi_library)
     )
     set(_sapi_sandboxee_client_lib "${_sapi_sandboxee_client_target}")
   else()
-    set (_sapi_sandboxee_client_lib "sapi::client_message_handler")
+    set(_sapi_sandboxee_client_lib "sapi::client_message_handler")
   endif()
 
   # The sandboxed binary
@@ -189,8 +188,10 @@ function(add_sapi_library)
     "--sapi_ns=${_sapi_NAMESPACE}"
   )
   if(_sapi_use_generator_version VERSION_GREATER_EQUAL "2")
-    list(APPEND _sapi_generator_args "--sapi_api_version=${_sapi_API_VERSION}")
-    if (_sapi_use_generator_version VERSION_EQUAL "3")
+    if(_sapi_API_VERSION)
+      list(APPEND _sapi_generator_args "--sapi_api_version=${_sapi_API_VERSION}")
+    endif()
+    if(_sapi_use_generator_version VERSION_EQUAL "3")
       list(APPEND _sapi_generator_args
         "--sapi_sandboxee_src_out=${_sapi_gen_sandboxee_src}"
       )

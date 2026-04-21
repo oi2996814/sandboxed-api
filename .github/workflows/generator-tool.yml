@@ -47,7 +47,6 @@ jobs:
           -B "$GITHUB_WORKSPACE/build" \
           -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
-          -DSAPI_ENABLE_CLANG_TOOL=ON \
           -DSAPI_ENABLE_CLANG_TOOL_STATIC=ON
 
     - name: Build
