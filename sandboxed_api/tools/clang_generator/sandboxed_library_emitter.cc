@@ -29,6 +29,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
@@ -261,7 +262,7 @@ struct StringArg : StringConstRefArg {
     return "sapi::v::LenVal sapi_ret_tmp(0);\n";
   }
   std::string EmitRetArgs() const override { return "sapi_ret_tmp.PtrAfter()"; }
-  virtual std::string EmitRetParams() const {
+  std::string EmitRetParams() const override {
     return absl::Substitute("sapi::LenValStruct* $0", name_);
   }
   std::string EmitHostRet() const override {
@@ -473,7 +474,7 @@ absl::StatusOr<std::string> SandboxedLibraryEmitter::EmitSandboxeeHdr(
       continue;
     }
     EmitWrapperDecl(out, *func);
-    out += ";\n\n";
+    absl::StrAppend(&out, ";\n\n");
   }
   return Finalize(out, /*is_header=*/true, /*add_includes=*/true);
 }
@@ -485,62 +486,59 @@ absl::StatusOr<std::string> SandboxedLibraryEmitter::EmitSandboxeeSrc(
   EmitLibraryHeaders(options, out);
 
   if (sandboxee_code_) {
-    out += *sandboxee_code_;
+    absl::StrAppend(&out, *sandboxee_code_);
   }
 
   for (const auto* func : SortedFuncs()) {
     EmitFuncDecl(out, *func);
 
-    out += ";\n\n";
+    absl::StrAppend(&out, ";\n\n");
     // Emit the thunk on the sandboxee side if we have one.
     if (func->sandboxee_thunk) {
-      out += "// Start of thunk\n";
-      out += absl::Substitute("extern \"C\" ");
-      out += func->sandboxee_thunk->body;
-      out += "\n";
-      out += "// End of thunk\n";
+      absl::StrAppend(&out, "// Start of thunk\n", "extern \"C\" ",
+                      func->sandboxee_thunk->body, "\n", "// End of thunk\n");
     } else {
       EmitWrapperDecl(out, *func);
-      out += " {\n";
+      absl::StrAppend(&out, " {\n");
       for (const auto& arg : func->args) {
-        out += arg->EmitSandboxeePreCall();
+        absl::StrAppend(&out, arg->EmitSandboxeePreCall());
       }
-      out += "\n";
+      absl::StrAppend(&out, "\n");
       if (func->ret) {
-        out += absl::Substitute("$0 sapi_ret_val = ", func->ret->EmitRetType());
+        absl::StrAppend(&out, absl::Substitute("$0 sapi_ret_val = ",
+                                               func->ret->EmitRetType()));
       }
       // If we have a thunk, we call into that instead of the original library
       // function.
-      if (func->sandboxee_thunk) {
-        out += absl::Substitute("$0(", func->sandboxee_thunk->name);
-      } else {
-        out += absl::Substitute("$0(", func->name);
-      }
+      absl::StrAppend(
+          &out,
+          func->sandboxee_thunk ? func->sandboxee_thunk->name : func->name,
+          "(");
       if (func->sandboxee_thunk) {
         // We need to get the args for the sandboxee thunk here. This is wrong
         // right now.
         for (const auto& arg : func->args) {
           if (&arg != &func->args[0]) {
-            out += ", ";
+            absl::StrAppend(&out, ", ");
           }
-          out += arg->EmitSandboxeeArgs();
+          absl::StrAppend(&out, arg->EmitSandboxeeArgs());
         }
       } else {
         for (const auto& arg : func->args) {
           if (&arg != &func->args[0]) {
-            out += ", ";
+            absl::StrAppend(&out, ", ");
           }
-          out += arg->EmitSandboxeeArgs();
+          absl::StrAppend(&out, arg->EmitSandboxeeArgs());
         }
       }
-      out += ");\n\n";
+      absl::StrAppend(&out, ");\n\n");
       for (const auto& arg : func->args) {
-        out += arg->EmitSandboxeePostCall();
+        absl::StrAppend(&out, arg->EmitSandboxeePostCall());
       }
       if (func->ret) {
-        out += func->ret->EmitSandboxeeRet();
+        absl::StrAppend(&out, func->ret->EmitSandboxeeRet());
       }
-      out += "}\n\n";
+      absl::StrAppend(&out, "}\n\n");
     }
   }
   return Finalize(out, /*is_header=*/false, /*add_includes=*/true);
@@ -550,79 +548,79 @@ absl::StatusOr<std::string> SandboxedLibraryEmitter::EmitSandboxeeMain(
     const GeneratorOptions& options) const {
   std::string out;
   for (const auto* func : SortedFuncs()) {
-    out += absl::Substitute("extern \"C\" void $0();\n", func->name);
+    absl::StrAppend(&out, "extern \"C\" void ", func->name, "();\n");
   }
-  out += "\nint main() {\n";
+  absl::StrAppend(&out, "\nint main() {\n");
   for (const auto* func : SortedFuncs()) {
-    out += absl::Substitute("$0();\n", func->name);
+    absl::StrAppend(&out, "  ", func->name, "();\n");
   }
-  out += "}\n";
+  absl::StrAppend(&out, "}\n");
   return Finalize(out, /*is_header=*/false, /*add_includes=*/false);
 }
 
 absl::StatusOr<std::string> SandboxedLibraryEmitter::EmitHostSrc(
     const GeneratorOptions& options) const {
   std::string out;
-  out += absl::Substitute("#include \"$0\"\n", options.out_file);
-  out += absl::Substitute(kHostHeader, kIncludePrefix, options.name);
+  absl::StrAppendFormat(&out, "#include \"%s\"\n", options.out_file);
+  absl::StrAppend(&out,
+                  absl::Substitute(kHostHeader, kIncludePrefix, options.name));
 
   if (host_code_) {
-    out += *host_code_;
+    absl::StrAppend(&out, *host_code_);
   }
 
   // Emit the host state variables.
   for (const auto& src : host_state_vars_) {
-    out += src;
-    out += "\n";
+    absl::StrAppend(&out, src, "\n");
   }
-  out += "\n";
+  absl::StrAppend(&out, "\n");
 
   for (const auto* func : SortedFuncs()) {
     // Emit the host thunk on the host side if we have one.
     if (func->host_thunk) {
-      out += "// Start of thunk\n";
+      absl::StrAppend(&out, "// Start of thunk\n");
       // Forward declare the sandboxee thunk as we are going to call it.
-      out += absl::Substitute("extern \"C\" $0;\n\n",
-                              func->sandboxee_thunk->declaration);
-      out += absl::Substitute("extern \"C\" ");
-      out += func->host_thunk->body;
-      out += "\n";
-      out += "// End of thunk\n";
+      absl::StrAppend(&out,
+                      absl::Substitute("extern \"C\" $0;\n\n",
+                                       func->sandboxee_thunk->declaration));
+      absl::StrAppend(&out, "extern \"C\" ", func->host_thunk->body, "\n",
+                      "// End of thunk\n");
     } else {
       EmitFuncDecl(out, *func);
-      out += " {\n";
-      out += absl::Substitute("auto* sandbox = $0SandboxImpl::Instance();\n",
-                              options.name);
-      out += absl::Substitute("$0Api api(sandbox);\n\n", options.name);
+      absl::StrAppend(
+          &out, " {\n",
+          absl::Substitute("auto* sandbox = $0SandboxImpl::Instance();\n",
+                           options.name),
+          absl::Substitute("$0Api api(sandbox);\n\n", options.name));
       for (const auto& arg : func->args) {
-        out += arg->EmitHostPreCall();
+        absl::StrAppend(&out, arg->EmitHostPreCall());
       }
       if (func->ret) {
-        out += func->ret->EmitRetPreCall();
+        absl::StrAppend(&out, func->ret->EmitRetPreCall());
       }
-      out += "\n";
-      out += absl::Substitute("sandbox->Check(api.$0$1(", kWrapperPrefix,
-                              func->name);
+      absl::StrAppend(&out, "\n",
+                      absl::Substitute("sandbox->Check(api.$0$1(",
+                                       kWrapperPrefix, func->name));
       for (const auto& arg : func->args) {
         if (&arg != &func->args[0]) {
-          out += ", ";
+          absl::StrAppend(&out, ", ");
         }
-        out += arg->EmitHostArgs();
+        absl::StrAppend(&out, arg->EmitHostArgs());
       }
       if (func->ret) {
         if (!func->args.empty()) {
-          out += ", ";
+          absl::StrAppend(&out, ", ");
         }
-        out += func->ret->EmitRetArgs();
+        absl::StrAppend(&out, func->ret->EmitRetArgs());
       }
-      out += "));\n\n";
+      absl::StrAppend(&out, "));\n\n");
       for (const auto& arg : func->args) {
-        out += arg->EmitHostPostCall();
+        absl::StrAppend(&out, arg->EmitHostPostCall());
       }
       if (func->ret) {
-        out += func->ret->EmitHostRet();
+        absl::StrAppend(&out, func->ret->EmitHostRet());
       }
-      out += "}\n\n";
+      absl::StrAppend(&out, "}\n\n");
     }
   }
   return Finalize(out, /*is_header=*/false, /*add_includes=*/true);
@@ -633,14 +631,15 @@ void SandboxedLibraryEmitter::EmitFuncDecl(std::string& out, const Func& func) {
   if (func.ret) {
     ret = func.ret->EmitRetType();
   }
-  out += absl::Substitute("extern \"C\" $0 $1(", ret, func.name);
+  absl::StrAppend(&out,
+                  absl::Substitute("extern \"C\" $0 $1(", ret, func.name));
   for (const auto& arg : func.args) {
     if (&arg != &func.args[0]) {
-      out += ", ";
+      absl::StrAppend(&out, ", ");
     }
-    out += arg->EmitHostParams();
+    absl::StrAppend(&out, arg->EmitHostParams());
   }
-  out += ")";
+  absl::StrAppend(&out, ")");
 }
 
 void SandboxedLibraryEmitter::EmitWrapperDecl(std::string& out,
@@ -648,22 +647,23 @@ void SandboxedLibraryEmitter::EmitWrapperDecl(std::string& out,
   // Strictly speaking, used/retain attributes are not needed here,
   // but they are required now to work around broken global sapi_library mode
   // (when functions attribute is empty).
-  out +=
+  absl::StrAppend(
+      &out,
       absl::Substitute("extern \"C\" __attribute__((used, retain)) void $0$1(",
-                       kWrapperPrefix, func.name);
+                       kWrapperPrefix, func.name));
   for (const auto& arg : func.args) {
     if (&arg != &func.args[0]) {
-      out += ", ";
+      absl::StrAppend(&out, ", ");
     }
-    out += arg->EmitSandboxeeParams();
+    absl::StrAppend(&out, arg->EmitSandboxeeParams());
   }
   if (func.ret) {
     if (!func.args.empty()) {
-      out += ", ";
+      absl::StrAppend(&out, ", ");
     }
-    out += func.ret->EmitRetParams();
+    absl::StrAppend(&out, func.ret->EmitRetParams());
   }
-  out += ")";
+  absl::StrAppend(&out, ")");
 }
 
 absl::StatusOr<std::string> SandboxedLibraryEmitter::Finalize(
@@ -677,12 +677,11 @@ absl::StatusOr<std::string> SandboxedLibraryEmitter::Finalize(
     std::vector<std::string> includes(includes_.begin(), includes_.end());
     std::sort(includes.begin(), includes.end());
     for (const auto& inc : includes) {
-      out += absl::Substitute("#include $0\n", inc);
+      // inc s already formatted as `#include <foo>` or `#include "foo"`.
+      absl::StrAppendFormat(&out, "#include %s\n", inc);
     }
   }
-  out += "\n";
-  out += body;
-  out.append(kCommonFooter.data(), kCommonFooter.size());
+  absl::StrAppend(&out, "\n", body, kCommonFooter);
   return internal::ReformatGoogleStyle("input", out);
 }
 
