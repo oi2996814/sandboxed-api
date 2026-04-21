@@ -46,7 +46,8 @@ bzl_library(
     srcs = ["proto.bzl"],
     visibility = ["//visibility:private"],
     deps = [
-        "@rules_proto//proto:defs",
+        "@com_google_protobuf//bazel:cc_proto_library_bzl",
+        "@com_google_protobuf//bazel:proto_library_bzl",
     ],
 )
 

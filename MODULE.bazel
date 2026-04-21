@@ -14,7 +14,7 @@
 
 module(
     name = "sandboxed_api",
-    version = "20260109.0",
+    version = "20260421.0",
     bazel_compatibility = [">=8.5.0"],
 )
 

@@ -20,6 +20,7 @@
 # - test to ensure sandbox executor runs sandboxee without issue
 
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//sandboxed_api/bazel:build_defs.bzl", "sapi_platform_copts")
 
 licenses(["notice"])
