@@ -57,7 +57,7 @@ jobs:
           clang-${{matrix.compiler-version}} \
           libclang-${{matrix.libclang-version}}-dev \
           libclang-rt-${{matrix.libclang-version}}-dev \
-          llvm-${{matrix.libclang-version}}-dev \
+          llvm-${{matrix.libclang-version}}-dev
         echo "CXX=clang++-${{matrix.compiler-version}}" >> $GITHUB_ENV
         echo "CC=clang-${{matrix.compiler-version}}" >> $GITHUB_ENV
 
@@ -68,7 +68,7 @@ jobs:
           g++-${{matrix.compiler-version}} \
           libclang-${{matrix.libclang-version}}-dev \
           libclang-rt-${{matrix.libclang-version}}-dev \
-          llvm-${{matrix.libclang-version}}-dev \
+          llvm-${{matrix.libclang-version}}-dev
         echo "CXX=g++-${{matrix.compiler-version}}" >> $GITHUB_ENV
         echo "CC=gcc-${{matrix.compiler-version}}" >> $GITHUB_ENV
 

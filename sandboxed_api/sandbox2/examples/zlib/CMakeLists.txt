@@ -45,5 +45,5 @@ set_target_properties(sandbox2_zpipe PROPERTIES OUTPUT_NAME zpipe)
 add_executable(sandbox2::zpipe ALIAS sandbox2_zpipe)
 target_link_libraries(sandbox2_zpipe PRIVATE
   -static
-  ZLIB::ZLIB
+  ZLIB::ZLIBSTATIC
 )

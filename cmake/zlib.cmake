@@ -20,4 +20,3 @@ FetchContent_MakeAvailable(zlib)
 
 set(ZLIB_FOUND TRUE)
 set(ZLIB_INCLUDE_DIRS ${zlib_SOURCE_DIR})
-add_library(ZLIB::ZLIB ALIAS zlibstatic)

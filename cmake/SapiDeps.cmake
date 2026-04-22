@@ -19,7 +19,7 @@ function(sapi_check_target target)
   endif()
 endfunction()
 
-include(SapiFetchContent)
+include(FetchContent)
 
 # Use static libraries
 set(_sapi_saved_CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
@@ -92,7 +92,7 @@ sapi_check_target(re2)
 if(SAPI_BUILD_EXAMPLES)
   if(SAPI_DOWNLOAD_ZLIB)
     include(cmake/zlib.cmake)
-    sapi_check_target(ZLIB::ZLIB)
+    sapi_check_target(ZLIB::ZLIBSTATIC)
   else()
     find_package(ZLIB REQUIRED)
   endif()

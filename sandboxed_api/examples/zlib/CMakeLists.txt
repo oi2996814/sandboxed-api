@@ -24,7 +24,7 @@ add_sapi_library(zlib-sapi
 )
 add_library(sapi::zlib_sapi ALIAS zlib-sapi)
 target_link_libraries(zlib-sapi PRIVATE
-  ZLIB::ZLIB
+  ZLIB::ZLIBSTATIC
 )
 
 # sandboxed_api/examples/zlib:main_zlib

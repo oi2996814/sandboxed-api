@@ -27,6 +27,7 @@ if(NOT libunwind_POPULATED)
     message("-- Running ./configure for libunwind...")
     execute_process(
       COMMAND ./configure --disable-dependency-tracking
+                          --disable-documentation
                           --disable-minidebuginfo
                           --disable-shared
                           --enable-ptrace

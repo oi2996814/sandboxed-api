@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 3.13..3.26)
+cmake_minimum_required(VERSION 3.25..4.2)
 
 if(POLICY CMP0083)
   cmake_policy(SET CMP0083 NEW)  # Add PIE flags when requested
 endif()
 
-if(POLICY CMP0135)
-  cmake_policy(SET CMP0135 NEW)  # Set download timestamp to current time
+if(POLICY CMP0177)
+  cmake_policy(SET CMP0177 NEW)  # Normalize install() paths
 endif()
 
 project(SandboxedAPI C CXX ASM)
