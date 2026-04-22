@@ -262,8 +262,7 @@ PolicyBuilder& PolicyBuilder::DisableNamespaces(NamespacesToken) {
     SetError(absl::FailedPreconditionError(
         "Namespaces cannot be both disabled and enabled. You're probably "
         "using features that implicitly enable namespaces (SetHostname, "
-        "AddFile, AddDirectory, AddDataDependency, AddLibrariesForBinary "
-        "or similar)"));
+        "AddFile, AddDirectory, AddLibrariesForBinary or similar)"));
     return *this;
   }
   use_namespaces_ = false;
