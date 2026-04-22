@@ -11,43 +11,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Ubuntu 24.04: Use preinstalled Clang 18, 17, 16
+          # Ubuntu 24.04: Use preinstalled Clang 19, 18
+          - os: ubuntu-24.04
+            compiler: clang
+            compiler-version: 19
+            libclang-version: 19
+            ignore-errors: false
           - os: ubuntu-24.04
             compiler: clang
             compiler-version: 18
-            libclang-version: 18
+            libclang-version: 19
             ignore-errors: false
-          - os: ubuntu-24.04
-            compiler: clang
-            compiler-version: 17
-            libclang-version: 18
-            ignore-errors: false
-          - os: ubuntu-24.04
-            compiler: clang
-            compiler-version: 16
-            libclang-version: 18
-            ignore-errors: false
-          # Ubuntu 24.04: Use preinstalled GCC 9.5.0, 10.4.0, 11.3.0, 12.1.0
+          # Ubuntu 24.04: Use preinstalled GCC 14.2.0, 13.2.0
           - os: ubuntu-24.04
             compiler: gcc
-            compiler-version: 12
-            libclang-version: 18
+            compiler-version: 14
+            libclang-version: 19
             ignore-errors: false
           - os: ubuntu-24.04
             compiler: gcc
-            compiler-version: 11
-            libclang-version: 18
+            compiler-version: 13
+            libclang-version: 19
             ignore-errors: false
-          - os: ubuntu-24.04
-            compiler: gcc
-            compiler-version: 10
-            libclang-version: 18
-            ignore-errors: false
-          - os: ubuntu-24.04
-            compiler: gcc
-            compiler-version: 9
-            libclang-version: 18
-            ignore-errors: false
+
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.ignore-errors }}
 
@@ -69,8 +55,9 @@ jobs:
       run: |
         sudo apt-get install -qy \
           clang-${{matrix.compiler-version}} \
-          libclang1-${{matrix.libclang-version}} \
-          python3-clang-${{matrix.libclang-version}}
+          libclang-${{matrix.libclang-version}}-dev \
+          libclang-rt-${{matrix.libclang-version}}-dev \
+          llvm-${{matrix.libclang-version}}-dev \
         echo "CXX=clang++-${{matrix.compiler-version}}" >> $GITHUB_ENV
         echo "CC=clang-${{matrix.compiler-version}}" >> $GITHUB_ENV
 
@@ -79,8 +66,9 @@ jobs:
       run: |
         sudo apt-get install -qy \
           g++-${{matrix.compiler-version}} \
-          libclang1-${{matrix.libclang-version}} \
-          python3-clang-${{matrix.libclang-version}}
+          libclang-${{matrix.libclang-version}}-dev \
+          libclang-rt-${{matrix.libclang-version}}-dev \
+          llvm-${{matrix.libclang-version}}-dev \
         echo "CXX=g++-${{matrix.compiler-version}}" >> $GITHUB_ENV
         echo "CC=gcc-${{matrix.compiler-version}}" >> $GITHUB_ENV
 
