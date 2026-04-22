@@ -77,8 +77,7 @@ class UnotifyMonitor : public MonitorBase {
   bool InitSetupUnotify();
   bool InitSetupNotifyEventFd();
   // Kills the main traced PID with SIGKILL.
-  // Returns false if an error occurred and process could not be killed.
-  bool KillSandboxee();
+  void KillSandboxee();
   void KillInit();
 
   void AllowSyscallViaUnotify(seccomp_notif req);

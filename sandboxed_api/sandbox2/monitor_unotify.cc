@@ -126,6 +126,17 @@ absl::Status WaitForTaskToStop(pid_t pid) {
                              : absl::InternalError("task did not stop");
 }
 
+void KillProcess(pid_t pid) {
+  VLOG(1) << "Sending SIGKILL to the PID: " << pid;
+  if (kill(pid, SIGKILL) != 0) {
+    if (errno != ESRCH) {
+      PLOG(ERROR) << "Could not send SIGKILL to PID " << pid;
+    } else {
+      VLOG(1) << "Process " << pid << " already dead";
+    }
+  }
+}
+
 }  // namespace
 
 UnotifyMonitor::UnotifyMonitor(Executor* executor, Policy* policy,
@@ -261,7 +272,15 @@ void UnotifyMonitor::Run() {
     OnDone();
   };
   absl::Cleanup setup_notify = [this] { setup_notification_.Notify(); };
-  absl::Cleanup process_cleanup = [this] { KillInit(); };
+  absl::Cleanup process_cleanup =
+      [this, init_pidfd = FDCloser(open(
+                 absl::StrCat("/proc/", process_.init_pid).c_str(), O_PATH))] {
+        KillInit();
+      };
+  // Keep reference to the main pid to avoid killing a random process recycling
+  // the pid.
+  FDCloser main_pidfd(
+      open(absl::StrCat("/proc/", process_.main_pid).c_str(), O_PATH));
   if (!InitSetupUnotify()) {
     SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_NOTIFY);
     return;
@@ -426,21 +445,9 @@ void UnotifyMonitor::NotifyMonitor() {
          sizeof(value));
 }
 
-bool UnotifyMonitor::KillSandboxee() {
-  VLOG(1) << "Sending SIGKILL to the PID: " << process_.main_pid;
-  if (kill(process_.main_pid, SIGKILL) != 0) {
-    PLOG(ERROR) << "Could not send SIGKILL to PID " << process_.main_pid;
-    return false;
-  }
-  return true;
-}
+void UnotifyMonitor::KillSandboxee() { KillProcess(process_.main_pid); }
 
-void UnotifyMonitor::KillInit() {
-  VLOG(1) << "Sending SIGKILL to the PID: " << process_.init_pid;
-  if (kill(process_.init_pid, SIGKILL) != 0) {
-    PLOG(ERROR) << "Could not send SIGKILL to PID " << process_.init_pid;
-  }
-}
+void UnotifyMonitor::KillInit() { KillProcess(process_.init_pid); }
 
 void UnotifyMonitor::Join() {
   absl::MutexLock lock(notify_mutex_);
