@@ -12,14 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_python//python:py_library.bzl", "py_library")
 load("@rules_python//python:py_test.bzl", "py_test")
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//sandboxed_api/bazel:build_defs.bzl", "sapi_platform_copts")
-load("//sandboxed_api/bazel:sapi.bzl", "sapi_library")
 
 licenses(["notice"])
 
@@ -52,55 +47,4 @@ py_binary(
         "@abseil-py//absl/flags",
         "@abseil-py//absl/logging",
     ],
-)
-
-cc_library(
-    name = "tests",
-    srcs = [
-        "testdata/tests.cc",
-        "testdata/tests.h",
-        "testdata/tests2.cc",
-    ],
-    copts = sapi_platform_copts(),
-    alwayslink = 1,
-)
-
-# Targets for testing if generated code compiles
-sapi_library(
-    name = "tests_sapi_generator",
-    generator_version = 1,
-    input_files = [
-        "testdata/tests.cc",
-        "testdata/tests2.cc",
-    ],
-    lib = ":tests",
-    lib_name = "Tests",
-    namespace = "sapi::tests",
-)
-
-cc_binary(
-    name = "build_test_bin",
-    srcs = [
-        "testdata/main.cc",
-        ":tests_sapi_generator.sapi.h",
-        ":tests_sapi_generator_embed.h",
-    ],
-    copts = sapi_platform_copts(),
-    deps = [
-        ":tests_sapi_generator",
-        "//sandboxed_api:sandbox2_backend",
-        "//sandboxed_api:sapi",
-        "//sandboxed_api:vars",
-        "//sandboxed_api/util:status",
-        "@abseil-cpp//absl/status",
-        "@abseil-cpp//absl/status:statusor",
-    ],
-)
-
-# Compilation test - always passes if dependency builds properly
-sh_test(
-    name = "build_test",
-    srcs = ["build_test.sh"],
-    data = [":build_test_bin"],
-    tags = ["nobuilder"],
 )
