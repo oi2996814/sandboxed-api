@@ -55,8 +55,6 @@ def make_exec_label(label):
 
 # buildifier: disable=function-docstring
 def select_generator(ctx):
-    if ctx.attr.generator_version == 1:
-        return ctx.executable._generator_v1
     return ctx.executable._generator_v2
 
 def sort_deps(deps):
@@ -149,12 +147,8 @@ def _clang_format_file(src, out, **kwargs):
     )
 
 def _sapi_interface_impl(ctx):
-    if ctx.attr.generator_version == 1 and ctx.label.package not in [
-        "sandboxed_api/tools/python_generator",
-        "sandboxed_api/examples/stringop",
-    ]:
-        # TODO(b/500992305): Remove this temporary check once the python code generator is completely deleted.
-        fail("generator_version=1 is deprecated and cannot be used outside of internal tests.")
+    if ctx.attr.generator_version == 1:
+        fail("generator_version=1 is no longer supported.")
 
     cpp_toolchain = find_cpp_toolchain(ctx)
     generator = select_generator(ctx)
@@ -265,10 +259,7 @@ sapi_interface = rule(
         ),
         "generator_version": attr.int(
             default = 2,  # Note: always set by sapi_library
-            values = [1, 2, 3],
-        ),
-        "_generator_v1": make_exec_label(
-            "//sandboxed_api/tools/python_generator:sapi_generator",
+            values = [2, 3],
         ),
         "sandbox_mode": attr.string(default = "sandbox2"),
         "symbol_list_gen": attr.bool(default = False),

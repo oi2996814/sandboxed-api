@@ -98,18 +98,14 @@ function(add_sapi_library)
                         "${_sapi_one_value}" "${_sapi_multi_value}")
   set(_sapi_NAME "${ARGV0}")
 
-  if(_sapi_GENERATOR_VERSION AND (_sapi_GENERATOR_VERSION VERSION_LESS "1" OR _sapi_GENERATOR_VERSION VERSION_GREATER "3"))
-    message(FATAL_ERROR "GENERATOR_VERSION must be \"1\", \"2\" or \"3\"")
+  if(_sapi_GENERATOR_VERSION AND (_sapi_GENERATOR_VERSION VERSION_LESS "2" OR _sapi_GENERATOR_VERSION VERSION_GREATER "3"))
+    message(FATAL_ERROR "GENERATOR_VERSION must be \"2\" or \"3\"")
   endif()
 
   if(_sapi_GENERATOR_VERSION)
     set(_sapi_use_generator_version ${_sapi_GENERATOR_VERSION})
   else()
-    if(SAPI_ENABLE_CLANG_TOOL)
-      set(_sapi_use_generator_version "2")
-    else()
-      set(_sapi_use_generator_version "1")
-    endif()
+    set(_sapi_use_generator_version "2")
   endif()
 
   set(_sapi_gen_header "${_sapi_NAME}.sapi.h")
@@ -187,60 +183,39 @@ function(add_sapi_library)
     "--sapi_functions=${_sapi_funcs}"
     "--sapi_ns=${_sapi_NAMESPACE}"
   )
-  if(_sapi_use_generator_version VERSION_GREATER_EQUAL "2")
-    if(_sapi_API_VERSION)
-      list(APPEND _sapi_generator_args "--sapi_api_version=${_sapi_API_VERSION}")
-    endif()
-    if(_sapi_use_generator_version VERSION_EQUAL "3")
-      list(APPEND _sapi_generator_args
-        "--sapi_sandboxee_src_out=${_sapi_gen_sandboxee_src}"
-      )
-    endif()
-    set(_sapi_isystem_args ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
-    list(TRANSFORM _sapi_isystem_args PREPEND --extra-arg-before=-isystem)
-    if(SAPI_CLANG_TOOL_EXECUTABLE)
-      list(APPEND _sapi_generator_command "${SAPI_CLANG_TOOL_EXECUTABLE}")
-    else()
-      list(APPEND _sapi_generator_command sapi_generator_tool)
-    endif()
-    list(APPEND _sapi_generator_command
-      -p "${CMAKE_CURRENT_BINARY_DIR}"
-      ${_sapi_generator_args}
-      ${_sapi_isystem_args}
-      ${_sapi_full_inputs}
-    )
-    list(APPEND _sapi_custom_command_output "${_sapi_gen_header}")
-    if (_sapi_use_generator_version VERSION_EQUAL "3")
-      list(APPEND _sapi_custom_command_output "${_sapi_gen_sandboxee_src}")
-    endif()
-    add_custom_command(
-      OUTPUT ${_sapi_custom_command_output}
-      COMMAND ${_sapi_generator_command}
-      COMMENT "Generating interface"
-      DEPENDS ${_sapi_INPUTS}
-      VERBATIM
-    )
-  else()
-    set(_sapi_isystem "${_sapi_NAME}.isystem")
-    list(JOIN _sapi_full_inputs "," _sapi_full_inputs)
-    list(APPEND _sapi_generator_command
-      "${SAPI_PYTHON3_EXECUTABLE}" -B
-      "${SAPI_SOURCE_DIR}/sandboxed_api/tools/python_generator/sapi_generator.py"
-      ${_sapi_generator_args}
-      "--sapi_isystem=${_sapi_isystem}"
-      "--sapi_in=${_sapi_full_inputs}"
-    )
-    add_custom_command(
-      OUTPUT "${_sapi_gen_header}" "${_sapi_isystem}"
-      COMMAND sh -c
-              "printf '${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES}' | \
-               sed \"s/;/\\n/g\" > \"${_sapi_isystem}\""
-      COMMAND ${_sapi_generator_command}
-      COMMENT "Generating interface"
-      DEPENDS ${_sapi_INPUTS}
-      VERBATIM
+
+  if(_sapi_API_VERSION)
+    list(APPEND _sapi_generator_args "--sapi_api_version=${_sapi_API_VERSION}")
+  endif()
+  if(_sapi_use_generator_version VERSION_EQUAL "3")
+    list(APPEND _sapi_generator_args
+      "--sapi_sandboxee_src_out=${_sapi_gen_sandboxee_src}"
     )
   endif()
+  set(_sapi_isystem_args ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+  list(TRANSFORM _sapi_isystem_args PREPEND --extra-arg-before=-isystem)
+  if(SAPI_CLANG_TOOL_EXECUTABLE)
+    list(APPEND _sapi_generator_command "${SAPI_CLANG_TOOL_EXECUTABLE}")
+  else()
+    list(APPEND _sapi_generator_command sapi_generator_tool)
+  endif()
+  list(APPEND _sapi_generator_command
+    -p "${CMAKE_CURRENT_BINARY_DIR}"
+    ${_sapi_generator_args}
+    ${_sapi_isystem_args}
+    ${_sapi_full_inputs}
+  )
+  list(APPEND _sapi_custom_command_output "${_sapi_gen_header}")
+  if (_sapi_use_generator_version VERSION_EQUAL "3")
+    list(APPEND _sapi_custom_command_output "${_sapi_gen_sandboxee_src}")
+  endif()
+  add_custom_command(
+    OUTPUT ${_sapi_custom_command_output}
+    COMMAND ${_sapi_generator_command}
+    COMMENT "Generating interface"
+    DEPENDS ${_sapi_INPUTS}
+    VERBATIM
+  )
 
   # Library with the interface
   if(NOT _sapi_SOURCES)

@@ -91,8 +91,7 @@ sudo apt-get install -qy
 
 #### LLVM
 
-SAPI offers two header generators, based on
-[Python](tools/python_generator/BUILD) and
+SAPI offers a header generator based on
 [LLVM Libtooling](tools/clang_generator/BUILD).
 
 We aim to provide support for at least the latest three LLVM release and
