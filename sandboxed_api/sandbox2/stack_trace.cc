@@ -194,7 +194,12 @@ absl::StatusOr<std::vector<std::string>> StackTracePeer::LaunchLibunwindSandbox(
   // When running sandboxes concurrently, we might get a problem with sending
   // the unotify file descriptor in the unwind sandbox, as we might exceed the
   // maximum number of file descriptors.
-  executor->limits()->set_rlimit_nofile(RLIM64_INFINITY);
+  rlimit64 rlim;
+  if (getrlimit64(RLIMIT_NOFILE, &rlim) == -1) {
+    PLOG(WARNING) << "getrlimit64 failed, using RLIM64_INFINITY";
+    rlim.rlim_cur = rlim.rlim_max = RLIM64_INFINITY;
+  }
+  executor->limits()->set_rlimit_nofile(rlim);
 
   // Get path to the binary.
   // app_path contains the path like it is also in /proc/pid/maps. It is
