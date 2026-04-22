@@ -6,7 +6,7 @@
   <img src="docs/images/sapi-lockup-vertical.png" alt="Sandboxed API" width="400">
 </p>
 
-Copyright 2019-2025 Google LLC
+Copyright 2019-2026 Google LLC
 
 ### Introduction
 
