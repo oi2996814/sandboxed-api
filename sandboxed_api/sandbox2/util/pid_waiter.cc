@@ -63,7 +63,7 @@ int PidWaiter::Wait(int* status, struct rusage* rusage) {
 
 bool PidWaiter::CheckStatus(pid_t pid, bool blocking) {
   int status;
-  struct rusage rusage;
+  struct rusage rusage{};
   int flags = __WNOTHREAD | __WALL | WUNTRACED;
   if (!blocking) {
     // It should be a non-blocking operation (hence WNOHANG), so this function

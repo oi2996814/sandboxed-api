@@ -458,7 +458,6 @@ cc_library(
         "//sandboxed_api/util:fileops",
         "//sandboxed_api/util:status",
         "//sandboxed_api/util:thread",
-        "@abseil-cpp//absl/algorithm:container",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/cleanup",
         "@abseil-cpp//absl/container:flat_hash_map",

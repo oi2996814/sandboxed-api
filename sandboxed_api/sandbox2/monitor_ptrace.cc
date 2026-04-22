@@ -349,7 +349,7 @@ void PtraceMonitor::Run() {
   bool sandboxee_exited = false;
   pid_waiter_.SetPriorityPid(process_.main_pid);
   int status;
-  struct rusage rusage;
+  struct rusage rusage{};
   // All possible still running children of main process, will be killed due to
   // PTRACE_O_EXITKILL ptrace() flag.
   while (result().final_status() == Result::UNSET) {
