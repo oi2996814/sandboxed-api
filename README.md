@@ -1,9 +1,9 @@
 <p align="left">
-  <img src="https://badge.buildkite.com/2f662d7bddfd1c07d25bf92d243538c8344bc6fbf38fe187f8.svg" alt="Bazel build status" href="https://buildkite.com/bazel/sandboxed-api">
-  <img src="https://github.com/google/sandboxed-api/workflows/ubuntu-cmake/badge.svg" alt="CMake build status" href="https://github.com/google/sandboxed-api/actions/workflows/ubuntu-cmake.yml">
+  <img src="https://badge.buildkite.com/2f662d7bddfd1c07d25bf92d243538c8344bc6fbf38fe187f8.svg" alt="Bazel build status on BuildKite" href="https://buildkite.com/bazel/sandboxed-api">
+  <img src="https://github.com/google/sandboxed-api/workflows/ubuntu-cmake/badge.svg" alt="CMake build status on GitHub" href="https://github.com/google/sandboxed-api/actions/workflows/ubuntu-cmake.yml">
 </p>
 <p align="center">
-  <img src="docs/images/sapi-lockup-vertical.png" alt="Sandboxed API" width="400">
+  <img src="sandboxed_api/docs/images/sapi-lockup-vertical.png" alt="Sandboxed API lockup text with sandbox visual" width="400">
 </p>
 
 Copyright 2019-2026 Google LLC
@@ -57,36 +57,36 @@ https://developers.google.com/code-sandboxing.
 ### Dependencies
 
 SAPI and Sandbox2 both support Bazel and CMake build systems. The following
-dependencies are required on Debian 10 Buster:
+dependencies are required on Debian 13 ("Trixie"):
 
-```
+```bash
 sudo apt-get update
-sudo apt-get install -qy
-  bazel \
-  build-essential \
-  ccache \
-  cmake \
-  g++-12 \
-  gcc-12 \
-  git \
-  gnupg \
-  libcap-dev \
-  libclang-18-dev \
-  libffi-dev \
-  libncurses-dev \
-  linux-libc-dev \
-  llvm-18-dev \
-  libzstd-dev \
-  ninja-build \
-  pkg-config \
-  python3 \
-  python3-absl \
-  python3-clang-16 \
-  python3-pip \
-  unzip \
-  wget \
-  zip \
-  zlib1g-dev
+sudo apt-get install -qy --no-install-recommends \
+      build-essential \
+      clang-19 \
+      git \
+      gnupg \
+      libcap-dev \
+      libclang-19-dev \
+      libclang-rt-19-dev \
+      libffi-dev \
+      libncurses-dev \
+      libzstd-dev \
+      linux-libc-dev \
+      llvm-19-dev \
+      pkg-config \
+      unzip \
+      wget \
+      zip \
+      zlib1g-dev
+# Bazel only, check https://bazel.build/install/ubuntu for details
+sudo apt-get install -qy --no-install-recommends \
+      bazel \
+      openjdk-17-jdk-headless
+# CMake only
+sudo apt-get install -qy --no-install-recommends \
+      cmake \
+      ninja-build
 ```
 
 #### LLVM
@@ -94,8 +94,8 @@ sudo apt-get install -qy
 SAPI offers a header generator based on
 [LLVM Libtooling](tools/clang_generator/BUILD).
 
-We aim to provide support for at least the latest three LLVM release and
-cross-check with Debian stable.
+We aim to provide support for at least the latest three LLVM releases and
+test on Debian stable.
 
 ### Getting Involved
 
