@@ -47,10 +47,6 @@ class Buffer final {
   // given size.
   static absl::StatusOr<std::unique_ptr<Buffer>> CreateFromFd(
       sapi::file_util::fileops::FDCloser fd, size_t size);
-  ABSL_DEPRECATE_AND_INLINE()
-  static absl::StatusOr<std::unique_ptr<Buffer>> CreateFromFd(int fd) {
-    return CreateFromFd(sapi::file_util::fileops::FDCloser(fd));
-  }
 
   // Creates a new Buffer of the specified size, backed by a temporary file
   // (using memfd_create) that will be immediately deleted.
