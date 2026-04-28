@@ -1127,14 +1127,12 @@ PolicyBuilder& PolicyBuilder::AllowRestartableSequences(
                                             });
     AllowPrctlSetVma();
 
-    AddFileIfNamespaced("/proc/cpuinfo");
-    AddFileIfNamespaced("/proc/stat");
+    AddDirectoryIfNamespaced("/proc");
     AddDirectoryIfNamespaced("/sys/devices/system/cpu");
   }
   if (cpu_fence_mode == kAllowSlowFences && !allowed_complex_.slow_fences) {
     AllowSyscall(__NR_sched_getaffinity);
     AllowSyscall(__NR_sched_setaffinity);
-    AddFileIfNamespaced("/proc/self/cpuset");
     allowed_complex_.slow_fences = true;
   } else if (cpu_fence_mode == kRequireFastFences) {
     allowed_complex_.fast_fences = true;

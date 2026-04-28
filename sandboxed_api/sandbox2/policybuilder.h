@@ -267,18 +267,14 @@ class PolicyBuilder final {
   // - futex(WAIT)
   // - futex(WAKE)
   // - rt_sigprocmask(SIG_SETMASK)
-  // Allows these files:
-  // - "/proc/cpuinfo"
-  // - "/proc/stat"
-  // And this directory (including subdirs/files):
+  // Allows these directories (including subdirs/files):
+  // - "/proc"
   // - "/sys/devices/system/cpu/"
   //
   // If `cpu_fence_mode` is `kAllowSlowFences`, also permits slow CPU fences.
   // Allows these syscalls:
   // - sched_getaffinity
   // - sched_setaffinity
-  // Allows these files:
-  // - "/proc/self/cpuset"
   //
   // If `cpu_fence_mode` is `kRequireFastFences`, RSEQ functionality may not
   // be enabled if fast CPU fences are not available.
