@@ -74,14 +74,6 @@ class CharPtrArray {
   std::vector<const char*> array_;
 };
 
-// Converts an array of char* (terminated by a nullptr, like argv, or environ
-// arrays), to an std::vector<std::string>.
-ABSL_DEPRECATE_AND_INLINE()
-inline void CharPtrArrToVecString(char* const* arr,
-                                  std::vector<std::string>* vec) {
-  *vec = sandbox2::util::CharPtrArray(arr).ToStringVector();
-}
-
 // Returns the program name (via /proc/self/comm) for a given PID.
 std::string GetProgName(pid_t pid);
 
