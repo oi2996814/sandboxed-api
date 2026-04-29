@@ -357,7 +357,6 @@ cc_library(
     deps = [
         ":buffer",
         ":client",
-        ":client_cc_proto",
         ":comms",
         ":executor",
         ":fork_client",
@@ -443,7 +442,6 @@ cc_library(
     copts = sapi_platform_copts(),
     deps = [
         ":client",
-        ":client_cc_proto",
         ":comms",
         ":executor",
         ":flags",
@@ -485,7 +483,6 @@ cc_library(
     deps = [
         ":bpf_evaluator",
         ":client",
-        ":client_cc_proto",
         ":executor",
         ":flags",
         ":forkserver_cc_proto",
@@ -523,7 +520,6 @@ cc_library(
     copts = sapi_platform_copts(),
     deps = [
         ":client",
-        ":client_cc_proto",
         ":comms",
         ":executor",
         ":flags",
@@ -597,11 +593,6 @@ cc_library(
     ],
 )
 
-sapi_proto_library(
-    name = "client_proto",
-    srcs = ["client.proto"],
-)
-
 # Should be used in sandboxee code instead of :sandbox2 if it uses just
 # sandbox2::Client::SandboxMeHere() and sandbox2::Comms
 cc_library(
@@ -612,7 +603,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":buffer",
-        ":client_cc_proto",
         ":comms",
         ":logsink",
         ":policy",

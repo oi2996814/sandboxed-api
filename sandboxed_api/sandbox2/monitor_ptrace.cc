@@ -142,78 +142,6 @@ absl::Status WaitForTaskToStop(pid_t pid, absl::Duration timeout) {
   return absl::OkStatus();
 }
 
-absl::Status TryAttach(pid_t pid, const absl::flat_hash_set<int>& tasks,
-                       absl::Time deadline,
-                       absl::flat_hash_set<int>& tasks_attached) {
-  constexpr intptr_t kPtraceOptions =
-      PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
-      PTRACE_O_TRACEVFORKDONE | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC |
-      PTRACE_O_TRACEEXIT | PTRACE_O_TRACESECCOMP | PTRACE_O_EXITKILL;
-  auto format_ptrace_error = [](int task, absl::string_view message) {
-    return absl::StrCat("ptrace(PTRACE_SEIZE, ", task, ", 0, ", "0x",
-                        absl::Hex(kPtraceOptions), "): ", message);
-  };
-
-  absl::flat_hash_set<int> cur_tasks = tasks;
-  int retries = 0;
-
-  // In some situations we allow ptrace to try again when it fails.
-  while (!cur_tasks.empty()) {
-    absl::flat_hash_set<int> retry_tasks;
-    for (int task : cur_tasks) {
-      if (tasks_attached.contains(task)) {
-        continue;
-      }
-      // Keep reference to the task file descriptor to avoid it being recycled,
-      // while we try to ptrace attach.
-      FDCloser fd(
-          open(absl::StrCat("/proc/", pid, "/task/", task).c_str(), O_PATH));
-      if (fd.get() == -1 && errno == ENOENT) {
-        PLOG(WARNING) << "Skipping exited/recycled task (pid: " << task
-                      << "). Continuing with other tasks.";
-        continue;
-      }
-      int ret = ptrace(PTRACE_SEIZE, task, 0, kPtraceOptions);
-      if (ret != 0) {
-        if (errno == EPERM) {
-          // Sometimes when a task is exiting we can get an EPERM from ptrace.
-          // Let's try again up until the timeout in this situation.
-          PLOG(WARNING) << format_ptrace_error(task, "Retrying after EPERM");
-          retry_tasks.insert(task);
-          continue;
-        }
-        if (errno == ESRCH) {
-          // A task may have exited since we captured the task list, we will
-          // allow things to continue after we log a warning.
-          PLOG(WARNING) << format_ptrace_error(
-              task, "Skipping exited task. Continuing with other tasks.");
-          continue;
-        }
-        // Any other errno will be considered a failure.
-        return absl::ErrnoToStatus(errno, format_ptrace_error(task, "Failure"));
-      }
-      tasks_attached.insert(task);
-    }
-    if (!retry_tasks.empty()) {
-      if (absl::Now() >= deadline) {
-        return absl::DeadlineExceededError(absl::StrCat(
-            "Attaching to sandboxee timed out: could not attach to ",
-            cur_tasks.size(), " tasks"));
-      }
-      // Exponential Backoff.
-      constexpr absl::Duration kInitialRetry = absl::Milliseconds(1);
-      constexpr absl::Duration kMaxRetry = absl::Milliseconds(20);
-      const absl::Duration retry_interval =
-          kInitialRetry * (1 << std::min(10, retries++));
-      absl::SleepFor(
-          std::min({retry_interval, kMaxRetry, deadline - absl::Now()}));
-    }
-    cur_tasks = std::move(retry_tasks);
-  }
-
-  return absl::OkStatus();
-}
-
 }  // namespace
 
 PtraceMonitor::PtraceMonitor(Executor* executor, Policy* policy, Notify* notify)
@@ -648,11 +576,76 @@ bool PtraceMonitor::InitSetupSignals() {
   return true;
 }
 
-ClientConfig PtraceMonitor::CreateClientConfig() const {
-  ClientConfig client_config = MonitorBase::CreateClientConfig();
-  client_config.set_monitor_type(ClientConfig::CLIENT_MONITOR_PTRACE);
-  client_config.set_ptracer_tid(util::Syscall(__NR_gettid));
-  return client_config;
+absl::Status TryAttach(pid_t pid, const absl::flat_hash_set<int>& tasks,
+                       absl::Time deadline,
+                       absl::flat_hash_set<int>& tasks_attached) {
+  constexpr intptr_t kPtraceOptions =
+      PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
+      PTRACE_O_TRACEVFORKDONE | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC |
+      PTRACE_O_TRACEEXIT | PTRACE_O_TRACESECCOMP | PTRACE_O_EXITKILL;
+  auto format_ptrace_error = [](int task, absl::string_view message) {
+    return absl::StrCat("ptrace(PTRACE_SEIZE, ", task, ", 0, ", "0x",
+                        absl::Hex(kPtraceOptions), "): ", message);
+  };
+
+  absl::flat_hash_set<int> cur_tasks = tasks;
+  int retries = 0;
+
+  // In some situations we allow ptrace to try again when it fails.
+  while (!cur_tasks.empty()) {
+    absl::flat_hash_set<int> retry_tasks;
+    for (int task : cur_tasks) {
+      if (tasks_attached.contains(task)) {
+        continue;
+      }
+      // Keep reference to the task file descriptor to avoid it being recycled,
+      // while we try to ptrace attach.
+      FDCloser fd(
+          open(absl::StrCat("/proc/", pid, "/task/", task).c_str(), O_PATH));
+      if (fd.get() == -1 && errno == ENOENT) {
+        PLOG(WARNING) << "Skipping exited/recycled task (pid: " << task
+                      << "). Continuing with other tasks.";
+        continue;
+      }
+      int ret = ptrace(PTRACE_SEIZE, task, 0, kPtraceOptions);
+      if (ret != 0) {
+        if (errno == EPERM) {
+          // Sometimes when a task is exiting we can get an EPERM from ptrace.
+          // Let's try again up until the timeout in this situation.
+          PLOG(WARNING) << format_ptrace_error(task, "Retrying after EPERM");
+          retry_tasks.insert(task);
+          continue;
+        }
+        if (errno == ESRCH) {
+          // A task may have exited since we captured the task list, we will
+          // allow things to continue after we log a warning.
+          PLOG(WARNING) << format_ptrace_error(
+              task, "Skipping exited task. Continuing with other tasks.");
+          continue;
+        }
+        // Any other errno will be considered a failure.
+        return absl::ErrnoToStatus(errno, format_ptrace_error(task, "Failure"));
+      }
+      tasks_attached.insert(task);
+    }
+    if (!retry_tasks.empty()) {
+      if (absl::Now() >= deadline) {
+        return absl::DeadlineExceededError(absl::StrCat(
+            "Attaching to sandboxee timed out: could not attach to ",
+            cur_tasks.size(), " tasks"));
+      }
+      // Exponential Backoff.
+      constexpr absl::Duration kInitialRetry = absl::Milliseconds(1);
+      constexpr absl::Duration kMaxRetry = absl::Milliseconds(20);
+      const absl::Duration retry_interval =
+          kInitialRetry * (1 << std::min(10, retries++));
+      absl::SleepFor(
+          std::min({retry_interval, kMaxRetry, deadline - absl::Now()}));
+    }
+    cur_tasks = std::move(retry_tasks);
+  }
+
+  return absl::OkStatus();
 }
 
 bool PtraceMonitor::InitPtraceAttach() {
@@ -737,8 +730,8 @@ bool PtraceMonitor::InitPtraceAttach() {
   // no matter what is the current state of the sandboxee, and it will allow for
   // our process to continue and unlock the sandboxee with the proper ptrace
   // event handling.
-  if (!SendMonitorReadyMessage()) {
-    LOG(ERROR) << "Couldn't send monitor ready message";
+  if (!SendMonitorReadyMessageAndFlags(Client::kSandbox2ClientPtrace)) {
+    LOG(ERROR) << "Couldn't send Client::kSandbox2ClientPtrace message";
     return false;
   }
   return true;

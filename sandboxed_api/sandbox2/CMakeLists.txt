@@ -438,7 +438,6 @@ target_link_libraries(sandbox2_monitor_base
   PUBLIC  absl::status
           absl::statusor
           absl::synchronization
-          sandbox2::client_proto
           sandbox2::comms
           sandbox2::executor
           sandbox2::fork_client
@@ -475,7 +474,6 @@ target_link_libraries(sandbox2_monitor_ptrace
           sapi::fileops
           sapi::status
           sandbox2::client
-          sandbox2::client_proto
           sandbox2::comms
           sandbox2::result
           sandbox2::sanitizer
@@ -517,7 +515,6 @@ target_link_libraries(sandbox2_monitor_unotify
           sapi::base
           sandbox2::bpf_evaluator
           sandbox2::client
-          sandbox2::client_proto
           sandbox2::flags
           sandbox2::forkserver_proto
           sandbox2::seccomp_unotify
@@ -572,20 +569,6 @@ target_link_libraries(sandbox2_policybuilder
          sandbox2::policy
 )
 
-# sandboxed_api/sandbox2:client_proto
-sapi_protobuf_generate_cpp(_sandbox2_client_pb_h _sandbox2_client_pb_cc
-  client.proto
-)
-add_library(sandbox2_client_proto ${SAPI_LIB_TYPE}
-  ${_sandbox2_client_pb_cc}
-  ${_sandbox2_client_pb_h}
-)
-add_library(sandbox2::client_proto ALIAS sandbox2_client_proto)
-target_link_libraries(sandbox2_client_proto PRIVATE
-  protobuf::libprotobuf
-  sapi::base
-)
-
 # sandboxed_api/sandbox2:client
 add_library(sandbox2_client ${SAPI_LIB_TYPE}
   client.cc
@@ -608,7 +591,6 @@ target_link_libraries(sandbox2_client
           sapi::status
   PUBLIC absl::flat_hash_map
          absl::status
-         sandbox2::client_proto
          sandbox2::comms
          sandbox2::logsink
          sandbox2::network_proxy_client

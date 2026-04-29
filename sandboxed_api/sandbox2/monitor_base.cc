@@ -220,12 +220,12 @@ void MonitorBase::Launch() {
     SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_NOTIFY);
     return;
   }
-  if (!InitSendClientConfig()) {
-    SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_CLIENT_CONFIG);
-    return;
-  }
   if (!InitSendIPC()) {
     SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_IPC);
+    return;
+  }
+  if (!InitSendCwd()) {
+    SetExitStatusCode(Result::SETUP_ERROR, Result::FAILED_CWD);
     return;
   }
   if (!InitSendPolicy()) {
@@ -267,8 +267,12 @@ absl::Status MonitorBase::SendPolicy(const std::vector<sock_filter>& policy) {
   return absl::OkStatus();
 }
 
-bool MonitorBase::SendMonitorReadyMessage() {
-  return comms_->SendUint32(Client::kSandbox2MonitorReady);
+bool MonitorBase::SendMonitorReadyMessageAndFlags(uint32_t monitor_type) {
+  uint32_t message = monitor_type;
+  if (policy_->allow_speculation_) {
+    message |= Client::kAllowSpeculationBit;
+  }
+  return comms_->SendUint32(message);
 }
 
 bool MonitorBase::InitSendPolicy() {
@@ -280,6 +284,15 @@ bool MonitorBase::InitSendPolicy() {
     LOG(ERROR) << "Couldn't send policy: " << status;
     return false;
   }
+  return true;
+}
+
+bool MonitorBase::InitSendCwd() {
+  if (!comms_->SendString(executor_->cwd_)) {
+    PLOG(ERROR) << "Couldn't send cwd";
+    return false;
+  }
+
   return true;
 }
 
@@ -320,21 +333,6 @@ bool MonitorBase::InitApplyLimits() {
          InitApplyLimit(process_.main_pid, RLIMIT_NOFILE,
                         limits->rlimit_nofile()) &&
          InitApplyLimit(process_.main_pid, RLIMIT_CORE, limits->rlimit_core());
-}
-
-ClientConfig MonitorBase::CreateClientConfig() const {
-  ClientConfig client_config;
-  client_config.set_cwd(executor_->cwd_);
-  client_config.set_seccomp_allow_speculation(policy_->allow_speculation_);
-  return client_config;
-}
-
-bool MonitorBase::InitSendClientConfig() {
-  if (!comms_->SendProtoBuf(CreateClientConfig())) {
-    LOG(ERROR) << "Couldn't send client config";
-    return false;
-  }
-  return true;
 }
 
 bool MonitorBase::InitSendIPC() { return ipc_->SendFdsOverComms(); }

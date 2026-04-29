@@ -32,7 +32,6 @@
 #include "absl/status/statusor.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
-#include "sandboxed_api/sandbox2/client.pb.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/executor.h"
 #include "sandboxed_api/sandbox2/fork_client.h"
@@ -85,9 +84,6 @@ class MonitorBase {
   // Applies limits on the sandboxee.
   bool InitApplyLimits();
 
-  // Creates the client config for the sandboxee.
-  virtual ClientConfig CreateClientConfig() const;
-
   // Sends the policy to the client.
   // Can be overridden by subclasses to save/modify policy before sending.
   // Returns success/failure status.
@@ -101,7 +97,9 @@ class MonitorBase {
   void OnDone();
 
   // Sends a message to the client that we're ready to monitor it.
-  bool SendMonitorReadyMessage();
+  // The message contains the monitor type and final sandboxee mode flags
+  // (currently only flag to allow speculation for the seccomped process).
+  bool SendMonitorReadyMessageAndFlags(uint32_t monitor_type);
 
   // Sets basic info status and reason code in the result object.
   void SetExitStatusCode(Result::StatusEnum final_status,
@@ -144,9 +142,6 @@ class MonitorBase {
   MonitorType type_ = FORKSERVER_MONITOR_PTRACE;
 
  private:
-  // Sends the client configuration to the sandboxee.
-  bool InitSendClientConfig();
-
   // Instantiates and sends Policy to the Client.
   // Returns success/failure status.
   bool InitSendPolicy();
@@ -157,6 +152,9 @@ class MonitorBase {
 
   // Sends information about data exchange channels.
   bool InitSendIPC();
+
+  // Sends information about the current working directory.
+  bool InitSendCwd();
 
   // Applies individual limit on the sandboxee.
   bool InitApplyLimit(pid_t pid, int resource, const rlimit64& rlim) const;
