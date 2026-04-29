@@ -52,7 +52,6 @@ option(SAPI_BUILD_TESTING
 # Disabled by default, as this will download a lot of extra content.
 option(SAPI_CONTRIB_BUILD_TESTING "Build tests for sandboxes in 'contrib'" OFF)
 
-option(SAPI_ENABLE_CLANG_TOOL "Use the Clang tool header generator" ON)
 option(SAPI_ENABLE_CLANG_TOOL_STATIC
   "Link the Clang libraries statically into the tool" OFF
 )
