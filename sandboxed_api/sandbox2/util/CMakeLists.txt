@@ -173,6 +173,24 @@ target_link_libraries(sandbox2_demangle
   PRIVATE sapi::base
 )
 
+# sandboxed_api/sandbox2/util:asynchronous_byte_transport
+add_library(sandbox2_util_asynchronous_byte_transport ${SAPI_LIB_TYPE}
+  asynchronous_byte_transport.cc
+  asynchronous_byte_transport.h
+)
+add_library(sandbox2::asynchronous_byte_transport ALIAS sandbox2_util_asynchronous_byte_transport)
+target_link_libraries(sandbox2_util_asynchronous_byte_transport
+  PUBLIC absl::memory
+         absl::status
+         absl::statusor
+         absl::span
+         absl::time
+         sandbox2::buffer
+         sandbox2::util
+         sapi::raw_logging
+  PRIVATE sapi::base
+)
+
 if(BUILD_TESTING AND SAPI_BUILD_TESTING)
   # sandboxed_api/sandbox2/util:minielf_test
   add_executable(sandbox2_minielf_test
@@ -277,4 +295,24 @@ if(BUILD_TESTING AND SAPI_BUILD_TESTING)
     sapi::test_main
   )
   gtest_discover_tests_xcompile(sandbox2_seccomp_unotify_test)
+
+  # sandboxed_api/sandbox2/util:asynchronous_byte_transport_test
+  add_executable(sandbox2_asynchronous_byte_transport_test
+    asynchronous_byte_transport_test.cc
+  )
+  set_target_properties(sandbox2_asynchronous_byte_transport_test PROPERTIES
+    OUTPUT_NAME asynchronous_byte_transport_test
+  )
+  target_link_libraries(sandbox2_asynchronous_byte_transport_test PRIVATE
+    absl::check
+    absl::status
+    absl::statusor
+    absl::synchronization
+    absl::time
+    sandbox2::asynchronous_byte_transport
+    sandbox2::comms
+    sapi::testing
+    sapi::test_main
+  )
+  gtest_discover_tests_xcompile(sandbox2_asynchronous_byte_transport_test)
 endif()

@@ -262,3 +262,40 @@ cc_library(
     hdrs = ["demangle.h"],
     copts = sapi_platform_copts(),
 )
+
+cc_library(
+    name = "asynchronous_byte_transport",
+    srcs = ["asynchronous_byte_transport.cc"],
+    hdrs = ["asynchronous_byte_transport.h"],
+    copts = sapi_platform_copts(),
+    deps = [
+        "//sandboxed_api/sandbox2:buffer",
+        "//sandboxed_api/sandbox2:util",
+        "//sandboxed_api/util:raw_logging",
+        "//sandboxed_api/util:status",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "asynchronous_byte_transport_test",
+    srcs = ["asynchronous_byte_transport_test.cc"],
+    deps = [
+        ":asynchronous_byte_transport",
+        "//sandboxed_api:testing",
+        "//sandboxed_api/sandbox2:buffer",
+        "//sandboxed_api/sandbox2:comms",
+        "//sandboxed_api/util:fileops",
+        "//sandboxed_api/util:thread",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
+        "@googletest//:gtest_main",
+    ],
+)
