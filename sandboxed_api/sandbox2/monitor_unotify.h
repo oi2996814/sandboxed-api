@@ -74,6 +74,7 @@ class UnotifyMonitor : public MonitorBase {
   void Run();
 
   absl::Status SendPolicy(const std::vector<sock_filter>& policy) override;
+  ClientConfig CreateClientConfig() const override;
   bool InitSetupUnotify();
   bool InitSetupNotifyEventFd();
   // Kills the main traced PID with SIGKILL.

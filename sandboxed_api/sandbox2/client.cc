@@ -50,6 +50,7 @@
 #include "absl/strings/string_view.h"
 #include "sandboxed_api/config.h"
 #include "sandboxed_api/sandbox2/buffer.h"
+#include "sandboxed_api/sandbox2/client.pb.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/logsink.h"
 #include "sandboxed_api/sandbox2/network_proxy/client.h"
@@ -189,6 +190,7 @@ std::string Client::GetFdMapEnvVar() const {
 }
 
 void Client::PrepareEnvironment(int* preserved_fd) {
+  ReceiveClientConfig();
   SetUpIPC(preserved_fd);
   SetUpCwd();
 }
@@ -204,41 +206,19 @@ void Client::SandboxMeHere() {
 }
 
 void Client::SetUpCwd() {
-  {
-    // Get the current working directory to check if we are in a mount
-    // namespace.
-    // Note: glibc 2.27 no longer returns a relative path in that case, but
-    //       fails with ENOENT and returns a nullptr instead. The code still
-    //       needs to run on lower version for the time being.
-    char cwd_buf[PATH_MAX + 1] = {0};
-    char* cwd = getcwd(cwd_buf, ABSL_ARRAYSIZE(cwd_buf));
-    SAPI_RAW_PCHECK(cwd != nullptr || errno == ENOENT,
-                    "no current working directory");
-
-    // Outside of the mount namespace, the path is of the form
-    // '(unreachable)/...'. Only check for the slash, since Linux might make up
-    // other prefixes in the future.
-    if (errno == ENOENT || cwd_buf[0] != '/') {
-      SAPI_RAW_VLOG(1, "chdir into mount namespace, cwd was '%s'", cwd_buf);
-      // If we are in a mount namespace but fail to chdir, then it can lead to a
-      // sandbox escape -- we need to fail with FATAL if the chdir fails.
-      SAPI_RAW_PCHECK(chdir("/") != -1, "corrective chdir");
-    }
-  }
-
   // Receive the user-supplied current working directory and change into it.
-  std::string cwd;
-  SAPI_RAW_CHECK(comms_->RecvString(&cwd), "receiving working directory");
-  if (!cwd.empty()) {
-    // On the other hand this chdir can fail without a sandbox escape. It will
-    // probably not have the intended behavior though.
-    if (chdir(cwd.c_str()) == -1 && SAPI_RAW_VLOG_IS_ON(1)) {
-      SAPI_RAW_PLOG(
-          INFO,
-          "chdir(%s) failed, falling back to previous cwd or / (with "
-          "namespaces). Use Executor::SetCwd() to set a working directory",
-          cwd.c_str());
-    }
+  if (client_config_.cwd().empty()) {
+    return;
+  }
+  std::string cwd(client_config_.cwd());
+  // This chdir can fail without a sandbox escape. It will probably not have
+  // the intended behavior though.
+  if (chdir(cwd.c_str()) == -1 && SAPI_RAW_VLOG_IS_ON(1)) {
+    SAPI_RAW_PLOG(
+        INFO,
+        "chdir(%s) failed, falling back to previous cwd or / (with "
+        "namespaces). Use Executor::SetCwd() to set a working directory",
+        cwd.c_str());
   }
 }
 
@@ -314,9 +294,12 @@ void Client::SetUpIPC(int* preserved_fd) {
 }
 
 void Client::ReceivePolicy() {
-  std::vector<uint8_t> bytes;
-  SAPI_RAW_CHECK(comms_->RecvBytes(&bytes), "receive bytes");
-  policy_ = std::move(bytes);
+  SAPI_RAW_CHECK(comms_->RecvBytes(&policy_), "receive bytes");
+}
+
+void Client::ReceiveClientConfig() {
+  SAPI_RAW_CHECK(comms_->RecvProtoBuf(&client_config_),
+                 "receive client config");
 }
 
 void Client::ApplyPolicyAndBecomeTracee() {
@@ -325,18 +308,13 @@ void Client::ApplyPolicyAndBecomeTracee() {
   // this function does nothing.
   sanitizer::WaitForSanitizer();
 
-  // Creds can be received w/o synchronization, once the connection is
-  // established.
-  pid_t cred_pid;
-  uid_t cred_uid ABSL_ATTRIBUTE_UNUSED;
-  gid_t cred_gid ABSL_ATTRIBUTE_UNUSED;
-  SAPI_RAW_CHECK(comms_->GetPeerCreds(&cred_pid, &cred_uid, &cred_gid),
-                 "receiving credentials");
-
-  SAPI_RAW_CHECK(prctl(PR_SET_DUMPABLE, 1) == 0,
-                 "setting PR_SET_DUMPABLE flag");
-  if (prctl(PR_SET_PTRACER, cred_pid) == -1) {
-    SAPI_RAW_VLOG(1, "No YAMA on this system. Continuing");
+  pid_t ptracer_tid = client_config_.ptracer_tid();
+  if (ptracer_tid > 0) {
+    SAPI_RAW_CHECK(prctl(PR_SET_DUMPABLE, 1) == 0,
+                   "setting PR_SET_DUMPABLE flag");
+    if (prctl(PR_SET_PTRACER, ptracer_tid) == -1) {
+      SAPI_RAW_VLOG(1, "No YAMA on this system. Continuing");
+    }
   }
 
   SAPI_RAW_CHECK(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0,
@@ -364,7 +342,9 @@ void Client::ApplyPolicyAndBecomeTracee() {
   uint32_t message;  // wait for confirmation
   SAPI_RAW_CHECK(comms_->RecvUint32(&message),
                  "receving confirmation from executor");
-  bool allow_speculation = message & kAllowSpeculationBit;
+  SAPI_RAW_CHECK(message == kSandbox2MonitorReady,
+                 "invalid confirmation from executor");
+  bool allow_speculation = client_config_.seccomp_allow_speculation();
   if (!allow_speculation) {
     if constexpr (sapi::host_cpu::IsX8664() || sapi::host_cpu::IsArm64()) {
       SAPI_RAW_PCHECK(prctl(PR_SET_SPECULATION_CTRL, PR_SPEC_STORE_BYPASS,
@@ -381,12 +361,13 @@ void Client::ApplyPolicyAndBecomeTracee() {
   }
   uint32_t seccomp_extra_flags =
       allow_speculation ? SECCOMP_FILTER_FLAG_SPEC_ALLOW : 0;
-  uint32_t monitor_type = message & kMonitorTypeMask;
-  if (monitor_type == kSandbox2ClientUnotify) {
+  if (client_config_.monitor_type() == ClientConfig::CLIENT_MONITOR_UNOTIFY) {
     InitSeccompUnotify(prog, comms_, seccomp_extra_flags);
   } else {
-    SAPI_RAW_CHECK(monitor_type == kSandbox2ClientPtrace,
-                   "invalid confirmation from executor");
+    SAPI_RAW_CHECK(
+        client_config_.monitor_type() == ClientConfig::CLIENT_MONITOR_PTRACE,
+        absl::StrCat("invalid monitor type: ", client_config_.monitor_type())
+            .c_str());
     InitSeccompRegular(prog, seccomp_extra_flags);
   }
 }

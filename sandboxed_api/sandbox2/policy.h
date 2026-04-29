@@ -83,6 +83,8 @@ class Policy final {
     return collect_stacktraces_for_all_threads_;
   }
 
+  bool allow_speculation() const { return allow_speculation_; }
+
  private:
   friend class PolicyBuilder;
   friend class MonitorBase;

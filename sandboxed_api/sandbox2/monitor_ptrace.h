@@ -139,6 +139,8 @@ class PtraceMonitor : public MonitorBase {
   // Sets up required signal masks/handlers; prepare mask for sigtimedwait().
   bool InitSetupSignals();
 
+  ClientConfig CreateClientConfig() const override;
+
   // ptrace(PTRACE_SEIZE) to the Client.
   // Returns success/failure status.
   bool InitPtraceAttach();

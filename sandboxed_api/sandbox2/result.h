@@ -72,6 +72,7 @@ class Result {
     FAILED_LIMITS,
     FAILED_CWD,
     FAILED_POLICY,
+    FAILED_CLIENT_CONFIG,
 
     // Codes used by status=`INTERNAL_ERROR`:
     FAILED_STORE,
