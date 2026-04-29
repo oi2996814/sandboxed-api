@@ -72,19 +72,6 @@ absl::NoDestructor<llvm::cl::list<std::string>> g_sapi_functions(
                    "empty, generates a SAPI for all functions found."),
     llvm::cl::cat(*g_tool_category));
 
-ABSL_DEPRECATED("Pass the input files directly to the tool.")
-absl::NoDestructor<llvm::cl::list<std::string>> g_sapi_in(
-    "sapi_in", llvm::cl::CommaSeparated,
-    llvm::cl::desc("List of input files to analyze (DEPRECATED)"),
-    llvm::cl::cat(*g_tool_category));
-
-ABSL_DEPRECATED("Ignored for compatibility.")
-absl::NoDestructor<llvm::cl::opt<std::string>> g_sapi_isystem(
-    "sapi_isystem",
-    llvm::cl::desc(
-        "Parameter file with extra system include paths (DEPRECATED)"),
-    llvm::cl::cat(*g_tool_category));
-
 absl::NoDestructor<llvm::cl::opt<bool>> g_sapi_limit_scan_depth(
     "sapi_limit_scan_depth",
     llvm::cl::desc("Whether to only scan for functions "
@@ -204,30 +191,26 @@ absl::Status GeneratorMain(int argc, char* argv[]) {
   OptionsParser& opt_parser = expected_opt_parser.get();
 
   std::vector<std::string> sources = opt_parser.getSourcePathList();
-  for (const auto& sapi_in : *g_sapi_in) {  // NOLINT
-    sources.push_back(sapi_in);
-  }
   if (sources.empty()) {
     return absl::InvalidArgumentError("Error: No input files.");
   }
 
   auto options = GeneratorOptionsFromFlags(sources);
 
-  if (options.api_version != 1) {
+  if (options.api_version < 1) {
     return absl::InvalidArgumentError(
-        "Error: Only API version 1 is currently defined.");
+        "Error: API versions must be 1 or greater.");
+  }
+  if (options.api_version > 1) {
+    absl::FPrintF(
+        stderr,
+        "Warning: API versions greater than 1 are currently experimental.\n");
   }
 
   std::unique_ptr<clang::tooling::CompilationDatabase> db =
       FromCxxAjustedCompileCommands(
           NonOwningCompileCommands(opt_parser.getCompilations()));
   clang::tooling::ClangTool tool(*db, sources);
-
-  if (!g_sapi_isystem->empty()) {  // NOLINT(deprecated)
-    absl::FPrintF(
-        stderr,
-        "Note: Ignoring deprecated command-line option: sapi_isystem\n");
-  }
 
   if (options.symbol_list_gen) {
     SymbolListEmitter emitter;

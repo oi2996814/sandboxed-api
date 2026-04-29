@@ -53,10 +53,6 @@ def make_exec_label(label):
         executable = True,
     )
 
-# buildifier: disable=function-docstring
-def select_generator(ctx):
-    return ctx.executable._generator_v2
-
 def sort_deps(deps):
     """Sorts a list of dependencies.
 
@@ -151,8 +147,6 @@ def _sapi_interface_impl(ctx):
         fail("generator_version=1 is no longer supported.")
 
     cpp_toolchain = find_cpp_toolchain(ctx)
-    generator = select_generator(ctx)
-    use_clang_generator = ctx.attr.generator_version >= 2
 
     # TODO(szwl): warn if input_files is not set and we didn't find anything
     input_files_paths = []
@@ -166,11 +160,10 @@ def _sapi_interface_impl(ctx):
     append_arg(args, "--sapi_embed_name", ctx.attr.embed_name)
     append_arg(args, "--sapi_functions", ",".join(ctx.attr.functions))
     append_arg(args, "--sapi_ns", ctx.attr.namespace)
+    append_arg(args, "--sapi_api_version", str(ctx.attr.api_version))
+    append_arg(args, "--sapi_sandbox_mode", ctx.attr.sandbox_mode)
 
-    if use_clang_generator:
-        append_arg(args, "--sapi_sandbox_mode", ctx.attr.sandbox_mode)
-
-    if use_clang_generator and ctx.outputs.sandboxee_src_out:
+    if ctx.outputs.sandboxee_src_out:
         append_arg(args, "--sapi_sandboxee_src_out", ctx.outputs.sandboxee_src_out.path)
         outs.append(ctx.outputs.sandboxee_src_out)
 
@@ -204,30 +197,22 @@ def _sapi_interface_impl(ctx):
         # Try to find files automatically
         input_files_paths += _lib_direct_headers(ctx.attr.lib, cc_ctx)
 
-    if use_clang_generator:
-        input_files += cpp_toolchain.all_files.to_list()
-        extra_flags += _clang_generator_flags(ctx, cc_ctx, cpp_toolchain, input_files_paths)
-    else:
-        append_all(extra_flags, "-D", cc_ctx.defines.to_list())
-        append_all(extra_flags, "-isystem", cc_ctx.system_includes.to_list())
-        append_all(extra_flags, "-iquote", cc_ctx.quote_includes.to_list())
-        append_all(extra_flags, "-I", cc_ctx.includes.to_list())
+    input_files += cpp_toolchain.all_files.to_list()
+    extra_flags += _clang_generator_flags(ctx, cc_ctx, cpp_toolchain, input_files_paths)
 
-    if use_clang_generator:
-        args += extra_flags + input_files_paths
-    else:
-        append_arg(args, "--sapi_in", ",".join(input_files_paths))
-        args += ["--"] + extra_flags
+    args += extra_flags + input_files_paths
 
-    progress_msg = ("Generating {} from {} header files." +
-                    "").format(ctx.outputs.out.short_path, len(input_files_paths))
+    progress_msg = "Generating {} from {} header files.".format(
+        ctx.outputs.out.short_path,
+        len(input_files_paths),
+    )
     ctx.actions.run(
         inputs = input_files,
         outputs = outs,
         arguments = args,
         mnemonic = "SapiInterfaceGen",
         progress_message = progress_msg,
-        executable = generator,
+        executable = ctx.executable._generator_v2,
     )
 
 # Build rule that generates SAPI interface.
