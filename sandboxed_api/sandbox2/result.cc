@@ -220,8 +220,6 @@ std::string Result::ReasonCodeEnumToString(ReasonCodeEnum value) {
       return "VIOLATION_ARCH";
     case sandbox2::Result::VIOLATION_NETWORK:
       return "VIOLATION_NETWORK";
-    case sandbox2::Result::FAILED_CLIENT_CONFIG:
-      return "FAILED_CLIENT_CONFIG";
   }
   return absl::StrCat("UNKNOWN: ", value);
 }

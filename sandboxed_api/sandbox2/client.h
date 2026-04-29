@@ -27,7 +27,6 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "sandboxed_api/sandbox2/buffer.h"
-#include "sandboxed_api/sandbox2/client.pb.h"
 #include "sandboxed_api/sandbox2/comms.h"
 #include "sandboxed_api/sandbox2/logsink.h"
 #include "sandboxed_api/sandbox2/network_proxy/client.h"
@@ -39,8 +38,12 @@ class Client {
   // Client is ready to be sandboxed.
   static constexpr uint32_t kClient2SandboxReady = 0x0A0B0C01;
 
-  // Sandbox is ready to monitor the sandboxee.
-  static constexpr uint32_t kSandbox2MonitorReady = 0x0A0B0D01;
+  // Sandbox is ready to monitor the sandboxee. Used with PtraceMonitor.
+  static constexpr uint32_t kSandbox2ClientPtrace = 0x0A0B0C02;
+
+  // Sandboxee should setup seccomp_unotify and send back the FD. Used with
+  // UnotifyMonitor.
+  static constexpr uint32_t kSandbox2ClientUnotify = 0x0A0B0C03;
 
   // Sandboxee can proceed after seccomp_unotify setup as limits have been
   // applied by the monitor.
@@ -94,9 +97,6 @@ class Client {
 
   friend class ForkServer;
 
-  // Client configuration received from the monitor.
-  ClientConfig client_config_;
-
   // Seccomp-bpf policy received from the monitor.
   std::vector<uint8_t> policy_;
 
@@ -129,9 +129,6 @@ class Client {
 
   // Receives seccomp-bpf policy from the monitor.
   void ReceivePolicy();
-
-  // Receives client configuration from the monitor.
-  void ReceiveClientConfig();
 
   // Applies sandbox-bpf policy, have limits applied on us, and become ptrace'd.
   void ApplyPolicyAndBecomeTracee();

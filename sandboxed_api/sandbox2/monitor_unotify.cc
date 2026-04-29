@@ -408,15 +408,9 @@ void UnotifyMonitor::SetExitStatusFromStatusPipe() {
   }
 }
 
-ClientConfig UnotifyMonitor::CreateClientConfig() const {
-  ClientConfig client_config = MonitorBase::CreateClientConfig();
-  client_config.set_monitor_type(ClientConfig::CLIENT_MONITOR_UNOTIFY);
-  return client_config;
-}
-
 bool UnotifyMonitor::InitSetupUnotify() {
-  if (!SendMonitorReadyMessage()) {
-    LOG(ERROR) << "Couldn't send monitor ready message";
+  if (!SendMonitorReadyMessageAndFlags(Client::kSandbox2ClientUnotify)) {
+    LOG(ERROR) << "Couldn't send Client::kSandbox2ClientUnotify message";
     return false;
   }
   int fd;
