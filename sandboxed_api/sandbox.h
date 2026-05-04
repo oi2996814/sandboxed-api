@@ -20,6 +20,7 @@
 #include <initializer_list>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include "absl/base/attributes.h"
@@ -33,12 +34,14 @@
 #include "sandboxed_api/rpcchannel.h"
 #include "sandboxed_api/sandbox2/notify.h"
 #include "sandboxed_api/sandbox_config.h"
+#include "sandboxed_api/util/status_macros.h"
 #include "sandboxed_api/var_abstract.h"
 #include "sandboxed_api/var_reg.h"
 #include "sandboxed_api/vars.h"
 
 namespace sapi {
 namespace internal {
+
 class PtrOrCallable {
  public:
   explicit PtrOrCallable(v::Callable* callable) : callable_(callable) {}
@@ -55,6 +58,7 @@ class PtrOrCallable {
   v::Callable* callable_ = nullptr;
   v::Ptr* ptr_ = nullptr;
 };
+
 }  // namespace internal
 
 // The Sandbox class represents the sandboxed library. It provides users with
@@ -226,6 +230,17 @@ class Sandbox : public SandboxBase {
 template <typename Backend>
 using SandboxImpl [[deprecated("Use Sandbox instead")]] ABSL_REFACTOR_INLINE =
     Sandbox<Backend>;
+
+// Factory function that creates and initializes a new sandbox instance.
+// SandboxT must be a subclass of SandboxBase.
+template <typename SandboxT, class... Args>
+absl::StatusOr<std::unique_ptr<SandboxT>> MakeSandbox(Args&&... args) {
+  static_assert(std::is_base_of_v<SandboxBase, SandboxT>,
+                "SandboxT must be a subclass of SandboxBase");
+  auto sandbox = std::make_unique<SandboxT>(std::forward<Args>(args)...);
+  SAPI_RETURN_IF_ERROR(sandbox->Init());
+  return sandbox;
+}
 
 }  // namespace sapi
 

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "gmock/gmock.h"
@@ -67,9 +68,9 @@ TEST(StringopTest, ProtobufStringDuplication) {
 }
 
 TEST(StringopTest, ProtobufStringReversal) {
-  StringopSandbox sandbox;
-  ASSERT_THAT(sandbox.Init(), IsOk());
-  StringopApi api(&sandbox);
+  SAPI_ASSERT_OK_AND_ASSIGN(std::unique_ptr<StringopSandbox> sandbox,
+                            sapi::MakeSandbox<StringopSandbox>());
+  StringopApi api(sandbox.get());
 
   stringop::StringReverse proto;
   proto.set_input("Hello");
@@ -84,9 +85,9 @@ TEST(StringopTest, ProtobufStringReversal) {
 }
 
 TEST(StringopTest, RawStringDuplication) {
-  StringopSandbox sandbox;
-  ASSERT_THAT(sandbox.Init(), IsOk());
-  StringopApi api(&sandbox);
+  SAPI_ASSERT_OK_AND_ASSIGN(std::unique_ptr<StringopSandbox> sandbox,
+                            sapi::MakeSandbox<StringopSandbox>());
+  StringopApi api(sandbox.get());
 
   sapi::v::LenVal param("0123456789", 10);
   SAPI_ASSERT_OK_AND_ASSIGN(int return_value,
@@ -101,9 +102,9 @@ TEST(StringopTest, RawStringDuplication) {
 }
 
 TEST(StringopTest, RawStringReversal) {
-  StringopSandbox sandbox;
-  ASSERT_THAT(sandbox.Init(), IsOk());
-  StringopApi api(&sandbox);
+  SAPI_ASSERT_OK_AND_ASSIGN(std::unique_ptr<StringopSandbox> sandbox,
+                            sapi::MakeSandbox<StringopSandbox>());
+  StringopApi api(sandbox.get());
 
   sapi::v::LenVal param("0123456789", 10);
   {
@@ -121,7 +122,7 @@ TEST(StringopTest, RawStringReversal) {
   {
     // Let's call it again with different data as argument, reusing the
     // existing LenVal object.
-    EXPECT_THAT(param.ResizeData(sandbox.rpc_channel(), 16), IsOk());
+    EXPECT_THAT(param.ResizeData(sandbox->rpc_channel(), 16), IsOk());
     memcpy(param.GetData() + 10, "ABCDEF", 6);
     absl::string_view data(reinterpret_cast<const char*>(param.GetData()),
                            param.GetDataSize());
@@ -139,26 +140,27 @@ TEST(StringopTest, RawStringReversal) {
 }
 
 TEST(StringopTest, RawStringLength) {
-  StringopSandbox sandbox;
-  ASSERT_THAT(sandbox.Init(), IsOk());
-  StringopApi api(&sandbox);
+  SAPI_ASSERT_OK_AND_ASSIGN(std::unique_ptr<StringopSandbox> sandbox,
+                            sapi::MakeSandbox<StringopSandbox>());
+  StringopApi api(sandbox.get());
   SAPI_ASSERT_OK_AND_ASSIGN(void* target_mem_ptr, api.get_raw_c_string());
   SAPI_ASSERT_OK_AND_ASSIGN(size_t len,
-                            sandbox.rpc_channel()->Strlen(target_mem_ptr));
+                            sandbox->rpc_channel()->Strlen(target_mem_ptr));
   EXPECT_THAT(len, Eq(10));
 }
 
 TEST(StringopTest, RawStringReading) {
-  StringopSandbox sandbox;
-  ASSERT_THAT(sandbox.Init(), IsOk());
-  StringopApi api(&sandbox);
+  SAPI_ASSERT_OK_AND_ASSIGN(std::unique_ptr<StringopSandbox> sandbox,
+                            sapi::MakeSandbox<StringopSandbox>());
+  StringopApi api(sandbox.get());
   SAPI_ASSERT_OK_AND_ASSIGN(void* target_mem_ptr, api.get_raw_c_string());
   SAPI_ASSERT_OK_AND_ASSIGN(size_t len,
-                            sandbox.rpc_channel()->Strlen(target_mem_ptr));
+                            sandbox->rpc_channel()->Strlen(target_mem_ptr));
   EXPECT_THAT(len, Eq(10));
 
   SAPI_ASSERT_OK_AND_ASSIGN(
-      std::string data, sandbox.GetCString(sapi::v::RemotePtr(target_mem_ptr)));
+      std::string data,
+      sandbox->GetCString(sapi::v::RemotePtr(target_mem_ptr)));
   EXPECT_THAT(data, StrEq("Ten chars."));
 }
 
