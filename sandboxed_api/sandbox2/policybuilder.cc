@@ -1630,8 +1630,7 @@ PolicyBuilder& PolicyBuilder::AddFileAtIfNamespaced(absl::string_view outside,
     return *this;
   }
 
-  if (absl::StartsWith(*valid_outside, "/proc/self") &&
-      *valid_outside != "/proc/self/cpuset") {
+  if (absl::StartsWith(*valid_outside, "/proc/self")) {
     SetError(absl::InvalidArgumentError(
         absl::StrCat("Cannot add /proc/self mounts, you need to mount the "
                      "whole /proc instead. You tried to mount ",
