@@ -120,7 +120,7 @@ class SandboxBase {
   //    sapi::v::Array<uint8_t> sapi_buffer(
   //       reinterpret_cast<uint8_t*>(buffer.data()), buffer.size());
   //    SAPI_RETURN_IF_ERROR(sandbox.Allocate(&sapi_buffer));
-  //    SAPI_RETURN_IF_ERROR(sandbox.TransferFromSandboxee(&sapi_buffer));
+  //    SAPI_RETURN_IF_ERROR(sandbox.TransferToSandboxee(&sapi_buffer));
   absl::Status TransferToSandboxee(v::Var* var);
 
   // Transfers memory from the sandboxee's address space to the hostcode.
