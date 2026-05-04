@@ -54,11 +54,10 @@ sandbox2::PolicyBuilder Sandbox2Config::DefaultPolicyBuilder() {
           __NR_kill,
           __NR_tgkill,
           __NR_tkill,
-      });
-
 #ifdef __NR_arch_prctl  // x86-64 only
-  builder.AllowSyscall(__NR_arch_prctl);
+          __NR_arch_prctl,
 #endif
+      });
 
   if constexpr (sanitizers::IsAny()) {
     LOG(WARNING) << "Allowing additional calls to support the LLVM "
@@ -72,10 +71,9 @@ sandbox2::PolicyBuilder Sandbox2Config::DefaultPolicyBuilder() {
 }
 
 sandbox2::Limits Sandbox2Config::DefaultLimits() {
-  sandbox2::Limits limits;
-  limits.set_rlimit_cpu(RLIM64_INFINITY);
-  limits.set_walltime_limit(absl::ZeroDuration());
-  return limits;
+  return sandbox2::Limits()
+      .set_rlimit_cpu(RLIM64_INFINITY)
+      .set_walltime_limit(absl::ZeroDuration());
 }
 
 }  // namespace sapi
