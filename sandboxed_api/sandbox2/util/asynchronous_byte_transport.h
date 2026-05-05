@@ -126,6 +126,7 @@ class AsynchronousByteTransport {
 
   struct Header {
     SynchronizationType synchronization_type;
+    uint32_t sandboxee_read_index;
     ChannelHeader h2s;  // Host to Sandboxee
     ChannelHeader s2h;  // Sandboxee to Host
     // Must be last.
@@ -163,6 +164,12 @@ class AsynchronousByteTransport {
 
   int TransferInternal(ChannelHeader* write_channel,
                        ChannelHeader* read_channel);
+
+  uint32_t& GetReadIndex() {
+    return client_type_ == ClientType::kHost
+               ? read_index_
+               : GetHeader()->sandboxee_read_index;
+  }
 
   std::unique_ptr<sandbox2::Buffer> buffer_;
   ClientType client_type_;

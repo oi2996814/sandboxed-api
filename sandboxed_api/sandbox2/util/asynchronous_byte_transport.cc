@@ -208,6 +208,7 @@ AsynchronousByteTransport::AsynchronousByteTransport(
     GetHeader()->h2s.state.store(0, std::memory_order_release);
     GetHeader()->s2h.state.store(0, std::memory_order_release);
     GetHeader()->synchronization_type = synchronization_type;
+    GetHeader()->sandboxee_read_index = 0;
   }
 }
 
@@ -278,12 +279,13 @@ absl::Status AsynchronousByteTransport::Read(absl::Span<uint8_t> data) {
       return absl::AbortedError("Write index out of bounds");
     }
 
-    if (read_index_ > write_index) {
+    uint32_t& read_index = GetReadIndex();
+    if (read_index > write_index) {
       return absl::AbortedError("Read index out of bounds");
     }
 
     absl::Span<const uint8_t> read_buffer =
-        read_data_.subspan(read_index_, write_index);
+        read_data_.subspan(read_index, write_index);
     if (read_buffer.empty()) {
       uint32_t termination_state =
           termination_state_.load(std::memory_order_relaxed);
@@ -296,18 +298,18 @@ absl::Status AsynchronousByteTransport::Read(absl::Span<uint8_t> data) {
     }
 
     size_t chunk_size =
-        std::min(kChunkSize, static_cast<size_t>(write_index - read_index_));
+        std::min(kChunkSize, static_cast<size_t>(write_index - read_index));
     absl::Span<uint8_t> chunk = data.subspan(0, chunk_size);
 
     memcpy(chunk.data(), read_buffer.data(), chunk.size());
-    read_index_ += chunk.size();
+    read_index += chunk.size();
     data.remove_prefix(chunk.size());
 
-    if (read_index_ == write_index) {
+    if (read_index == write_index) {
       // If the connection is closed, we will not read any more data at this
       // point, but we will still acknowledge the last bit of data that was sent
       // from the other side. Note that in the event of an attacker controlled
-      // client, we will read from read_index_ up to the size of the buffer
+      // client, we will read from read_index up to the size of the buffer
       // until we acknowledge the connection is closed. This is needed so that
       // we can support legitimate scenarios where the client sends size_of_buf
       // - 1 bytes and then closes the connection. In this case, the host still
@@ -348,7 +350,8 @@ bool AsynchronousByteTransport::ResetWriteIndex(ChannelHeader* channel,
   if (state & kWaitForWritingBit) {
     WakeInternal(channel);
   }
-  read_index_ = 0;
+  uint32_t& read_index = GetReadIndex();
+  read_index = 0;
   return true;
 }
 
@@ -430,7 +433,7 @@ void AsynchronousByteTransport::WakeInternal(ChannelHeader* channel,
 
 int AsynchronousByteTransport::TransferInternal(ChannelHeader* write_channel,
                                                 ChannelHeader* read_channel) {
-  uint32_t read_state = read_index_;
+  uint32_t read_state = GetReadIndex();
   // If the counterpart has already written data and is waiting for reading,
   // we just need to wake them up and get back to reading.
   if (!read_channel->state.compare_exchange_strong(

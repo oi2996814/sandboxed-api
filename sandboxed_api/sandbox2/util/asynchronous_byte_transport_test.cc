@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -30,6 +31,7 @@
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "sandboxed_api/sandbox2/buffer.h"
@@ -139,25 +141,25 @@ class TestHelper {
     while (comms.RecvInt32(reinterpret_cast<int32_t*>(&action_type))) {
       if (action_type == ActionType::kSend) {
         std::vector<uint8_t> data;
-        ASSERT_TRUE(comms.RecvBytes(&data));
-        SAPI_ASSERT_OK(transport_client->Send(data));
+        CHECK_EQ(comms.RecvBytes(&data), true);
+        CHECK_OK(transport_client->Send(data));
       } else if (action_type == ActionType::kExchange) {
         std::vector<uint8_t> data_to_send;
-        ASSERT_TRUE(comms.RecvBytes(&data_to_send));
+        CHECK_EQ(comms.RecvBytes(&data_to_send), true);
         std::vector<uint8_t> data_to_recv;
-        ASSERT_TRUE(comms.RecvBytes(&data_to_recv));
+        CHECK_EQ(comms.RecvBytes(&data_to_recv), true);
         std::vector<uint8_t> recv_data(data_to_recv.size());
-        SAPI_ASSERT_OK(transport_client->Exchange(
+        CHECK_OK(transport_client->Exchange(
             data_to_send,
             absl::Span<uint8_t>(recv_data.data(), recv_data.size())));
         ASSERT_EQ(recv_data, data_to_recv);
       } else if (action_type == ActionType::kRecv) {
         std::vector<uint8_t> data;
-        ASSERT_TRUE(comms.RecvBytes(&data));
+        CHECK_EQ(comms.RecvBytes(&data), true);
         std::vector<uint8_t> data_recv(data.size());
-        SAPI_ASSERT_OK(transport_client->Recv(
+        CHECK_OK(transport_client->Recv(
             absl::Span<uint8_t>(data_recv.data(), data_recv.size())));
-        ASSERT_EQ(data, data_recv);
+        CHECK_EQ(data, data_recv);
       } else if (action_type == ActionType::kTerminate) {
         transport_client->Terminate();
       }
@@ -185,6 +187,7 @@ class AsynchronousByteTransportTest
   void SetUp() override {
     SAPI_ASSERT_OK_AND_ASSIGN(auto buffer,
                               sandbox2::Buffer::CreateWithSize(buffer_size_));
+    memset(buffer->data(), 0x41, 4 << 10);
     int memfd = buffer->fd();
     size_t size = buffer->size();
     sandbox2::AsynchronousByteTransport::SynchronizationType
@@ -212,7 +215,7 @@ class AsynchronousByteTransportTest
   TestHelper test_helper_;
 
  private:
-  size_t buffer_size_ = 128 << 10;
+  size_t buffer_size_ = 132 << 10;
   std::unique_ptr<ScopedTimeout> timeout_;
   std::unique_ptr<sandbox2::AsynchronousByteTransport> transport_;
 };
@@ -400,6 +403,17 @@ TEST_P(AsynchronousByteTransportTest, TwoReadsAfterConnectionClosedFails) {
   ASSERT_THAT(GetTransport()->Recv(
                   absl::Span<uint8_t>(data_recv.data(), data_recv.size())),
               StatusIs(absl::StatusCode::kAborted));
+}
+
+TEST_P(AsynchronousByteTransportTest,
+       ReadMoreThanBufferWillNotTriggerOutOfBounds) {
+  std::vector<uint8_t> data(10, 'a');
+  SAPI_ASSERT_OK(GetTransport()->Send(
+      absl::Span<const uint8_t>(data.data(), data.size() / 2)));
+  test_helper_.RequestRecv(data);
+  absl::SleepFor(absl::Milliseconds(10));
+  SAPI_ASSERT_OK(GetTransport()->Send(absl::Span<const uint8_t>(
+      data.data() + data.size() / 2, data.size() / 2)));
 }
 
 INSTANTIATE_TEST_SUITE_P(
