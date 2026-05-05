@@ -549,7 +549,15 @@ class PolicyBuilder final {
   // - sigprocmask (on architectures where it exists)
   PolicyBuilder& AllowHandleSignals();
 
-  // Appends code to allow doing the TCGETS ioctl.
+  // Appends code to allow sending signals to processes/threads.
+  //
+  // Allows these syscalls:
+  // - kill
+  // - tgkill
+  // - tkill (discouraged, but still used by some binaries)
+  PolicyBuilder& AllowKill();
+
+  // Appends code to allow the TCGETS ioctl.
   //
   // Allows these syscalls:
   // - ioctl (when the first argument is TCGETS)

@@ -1050,6 +1050,16 @@ PolicyBuilder& PolicyBuilder::AllowHandleSignals() {
   });
 }
 
+PolicyBuilder& PolicyBuilder::AllowKill() {
+  return AllowSyscalls({
+      __NR_kill,
+      __NR_tgkill,
+#ifdef __NR_tkill
+      __NR_tkill,  // Deprecated in favor of tgkill.
+#endif
+  });
+}
+
 PolicyBuilder& PolicyBuilder::AllowTCGETS() {
   if (allowed_complex_.tcgets) {
     return *this;
