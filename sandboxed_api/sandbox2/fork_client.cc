@@ -34,6 +34,7 @@
 
 namespace sandbox2 {
 namespace {
+
 using ::sapi::file_util::fileops::FDCloser;
 
 void ReportLatency(const SetupLatencyBreakdown& latency_breakdown) {
@@ -50,6 +51,7 @@ void ReportLatency(const SetupLatencyBreakdown& latency_breakdown) {
                      static_cast<SetupLatencyBreakdown::SetupStep>(i));
   }
 }
+
 }  // namespace
 
 ForkClient::ForkClient(pid_t pid, Comms* comms, bool is_global)
